@@ -1,0 +1,71 @@
+{
+  "name": "@seacloudai/sandbox",
+  "version": "0.1.0",
+  "description": "SeaCloudAI sandbox SDK for control-plane, build-plane, and runtime CMD APIs.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./control": {
+      "types": "./dist/control/index.d.ts",
+      "import": "./dist/control/index.js"
+    },
+    "./build": {
+      "types": "./dist/build/index.d.ts",
+      "import": "./dist/build/index.js"
+    },
+    "./cmd": {
+      "types": "./dist/cmd/index.d.ts",
+      "import": "./dist/cmd/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "author": "SeaCloudAI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SeaCloudAI/sandbox-node.git"
+  },
+  "homepage": "https://github.com/SeaCloudAI/sandbox-node#readme",
+  "bugs": {
+    "url": "https://github.com/SeaCloudAI/sandbox-node/issues"
+  },
+  "keywords": [
+    "seacloudai",
+    "sandbox",
+    "sdk",
+    "typescript",
+    "node"
+  ],
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "test:integration": "npm run build && node --test test/integration.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
