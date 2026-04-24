@@ -11,7 +11,7 @@ import {
 
 function createClient(handler) {
   return new SandboxClient({
-    baseUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai",
+    baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
     apiKey: "unit-auth-value",
     fetch: handler,
   });
@@ -19,7 +19,7 @@ function createClient(handler) {
 
 function createCmdService(handler) {
   return createClient(async () => jsonResponse(200, {})).cmd({
-    baseUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai",
+    baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
     accessToken: "unit-runtime-auth",
     fetch: handler,
   });
@@ -49,21 +49,21 @@ test("unit: system endpoints", async (t) => {
 test("unit: sandbox request encoding", async (t) => {
   await t.test("create sandbox sends headers and body", async () => {
     const client = createClient(async (input, init) => {
-      assert.equal(String(input), "https://hermes-gateway.sandbox.cloud.vtrix.ai/api/v1/sandboxes");
+      assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes");
       assert.equal(init.method, "POST");
       const headers = new Headers(init.headers);
       assert.equal(headers.get("Content-Type"), "application/json");
       assert.deepEqual(JSON.parse(init.body), { templateID: "tpl", waitReady: true });
       return jsonResponse(201, {
         sandboxID: "sb-1",
-        envdUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai",
+        envdUrl: "https://sandbox-gateway.cloud.seaart.ai",
         envdAccessToken: "unit-runtime-auth",
       });
     });
 
     const response = await client.createSandbox({ templateID: "tpl", waitReady: true });
     assert.equal(response.sandboxID, "sb-1");
-    assert.equal(response.runtime.baseUrl, "https://hermes-gateway.sandbox.cloud.vtrix.ai");
+    assert.equal(response.runtime.baseUrl, "https://sandbox-gateway.cloud.seaart.ai");
   });
 
   await t.test("list sandboxes encodes all query params", async () => {
@@ -95,7 +95,7 @@ test("unit: sandbox request encoding", async (t) => {
       if (url.endsWith("/connect")) {
         return jsonResponse(201, {
           sandboxID: "sb-1",
-          envdUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai",
+          envdUrl: "https://sandbox-gateway.cloud.seaart.ai",
           envdAccessToken: "unit-runtime-auth",
         });
       }
@@ -115,7 +115,7 @@ test("unit: sandbox request encoding", async (t) => {
       }
       return jsonResponse(200, {
         sandboxID: "sb-1",
-        envdUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai",
+        envdUrl: "https://sandbox-gateway.cloud.seaart.ai",
         envdAccessToken: "unit-runtime-auth",
       });
     });
@@ -138,14 +138,14 @@ test("unit: sandbox request encoding", async (t) => {
 
     assert.equal(connected.statusCode, 201);
     assert.equal(heartbeat.requestId, "req-1");
-    assert.equal(calls[0].url, "https://hermes-gateway.sandbox.cloud.vtrix.ai/api/v1/sandboxes/sb-1");
+    assert.equal(calls[0].url, "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes/sb-1");
     assert.equal(calls.at(-1).method, "DELETE");
     assert.equal(connected.sandbox.runtime.accessToken, "unit-runtime-auth");
   });
 
   await t.test("build namespace reuses gateway configuration", async () => {
     const client = createClient(async (input, init) => {
-      assert.equal(String(input), "https://hermes-gateway.sandbox.cloud.vtrix.ai/api/v1/templates");
+      assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/api/v1/templates");
       assert.equal(init.method, "POST");
       assert.deepEqual(JSON.parse(init.body), { name: "demo", image: "docker.io/library/alpine:3.20" });
       return jsonResponse(202, { templateID: "tpl-1", buildID: "build-1", names: ["demo"], tags: [], aliases: [], public: false });
@@ -158,18 +158,18 @@ test("unit: sandbox request encoding", async (t) => {
   await t.test("runtimeFromSandbox derives envd configuration", async () => {
     const client = createClient(async () => jsonResponse(200, {}));
     const runtime = client.runtimeFromSandbox({
-      envdUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai",
+      envdUrl: "https://sandbox-gateway.cloud.seaart.ai",
       envdAccessToken: "unit-runtime-auth",
     });
 
-    assert.equal(runtime.baseUrl, "https://hermes-gateway.sandbox.cloud.vtrix.ai");
+    assert.equal(runtime.baseUrl, "https://sandbox-gateway.cloud.seaart.ai");
     assert.equal(runtime.accessToken, "unit-runtime-auth");
   });
 
   await t.test("runtime system requests include access token", async () => {
     const client = createClient(async () => jsonResponse(200, {}));
     const runtime = client.runtime({
-      baseUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai",
+      baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
       accessToken: "unit-runtime-auth",
       fetch: async (_input, init) => {
         const headers = new Headers(init.headers);
@@ -188,7 +188,7 @@ test("unit: sandbox request encoding", async (t) => {
       if (String(input).endsWith("/api/v1/sandboxes")) {
         return jsonResponse(201, {
           sandboxID: "sb-1",
-          envdUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai",
+          envdUrl: "https://sandbox-gateway.cloud.seaart.ai",
           envdAccessToken: "unit-runtime-auth",
         });
       }
@@ -197,7 +197,7 @@ test("unit: sandbox request encoding", async (t) => {
       }
       return jsonResponse(200, {
         sandboxID: "sb-1",
-        envdUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai",
+        envdUrl: "https://sandbox-gateway.cloud.seaart.ai",
         envdAccessToken: "unit-runtime-auth",
       });
     });
@@ -207,8 +207,8 @@ test("unit: sandbox request encoding", async (t) => {
     await sandbox.logs();
 
     assert.equal(detail.sandboxID, "sb-1");
-    assert.equal(calls[1].url, "https://hermes-gateway.sandbox.cloud.vtrix.ai/api/v1/sandboxes/sb-1");
-    assert.equal(calls[2].url, "https://hermes-gateway.sandbox.cloud.vtrix.ai/api/v1/sandboxes/sb-1/logs");
+    assert.equal(calls[1].url, "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes/sb-1");
+    assert.equal(calls[2].url, "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes/sb-1/logs");
   });
 
   await t.test("listed sandboxes are returned as bound handles", async () => {
@@ -224,13 +224,13 @@ test("unit: sandbox request encoding", async (t) => {
         }
         return jsonResponse(201, {
           sandboxID: "sb-1",
-          envdUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai",
+          envdUrl: "https://sandbox-gateway.cloud.seaart.ai",
           envdAccessToken: "unit-runtime-auth",
         });
       }
       return jsonResponse(200, {
         sandboxID: "sb-1",
-        envdUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai",
+        envdUrl: "https://sandbox-gateway.cloud.seaart.ai",
         envdAccessToken: "unit-runtime-auth",
       });
     });
@@ -239,9 +239,9 @@ test("unit: sandbox request encoding", async (t) => {
     assert.equal(listed[0].sandboxID, "sb-1");
     const detail = await listed[0].reload();
     await listed[0].logs();
-    assert.equal(detail.runtime.baseUrl, "https://hermes-gateway.sandbox.cloud.vtrix.ai");
-    assert.equal(calls[1], "https://hermes-gateway.sandbox.cloud.vtrix.ai/api/v1/sandboxes/sb-1");
-    assert.equal(calls[2], "https://hermes-gateway.sandbox.cloud.vtrix.ai/api/v1/sandboxes/sb-1/logs");
+    assert.equal(detail.runtime.baseUrl, "https://sandbox-gateway.cloud.seaart.ai");
+    assert.equal(calls[1], "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes/sb-1");
+    assert.equal(calls[2], "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes/sb-1/logs");
   });
 });
 
@@ -306,7 +306,7 @@ test("unit: validations and errors", async (t) => {
 
   await t.test("request timeout surfaces a typed error", async () => {
     const client = new SandboxClient({
-      baseUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai",
+      baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
       apiKey: "unit-auth-value",
       timeoutMs: 1,
       fetch: async (_input, init) => new Promise((_, reject) => {
@@ -321,7 +321,7 @@ test("unit: validations and errors", async (t) => {
 test("unit: cmd sdk", async (t) => {
   await t.test("listDir sets connect headers and basic auth", async () => {
     const cmd = createCmdService(async (input, init) => {
-      assert.equal(String(input), "https://hermes-gateway.sandbox.cloud.vtrix.ai/filesystem.Filesystem/ListDir");
+      assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/filesystem.Filesystem/ListDir");
       assert.equal(init.method, "POST");
       const headers = new Headers(init.headers);
       assert.equal(headers.get("Connect-Protocol-Version"), "1");
@@ -379,7 +379,7 @@ test("unit: cmd sdk", async (t) => {
 
   await t.test("streamInput encodes connect frames", async () => {
     const cmd = createCmdService(async (input, init) => {
-      assert.equal(String(input), "https://hermes-gateway.sandbox.cloud.vtrix.ai/process.Process/StreamInput");
+      assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/process.Process/StreamInput");
       const body = new Uint8Array(await new Response(init.body).arrayBuffer());
       const frames = decodeFrames(body);
       assert.equal(frames.length, 2);
@@ -407,9 +407,9 @@ test("unit: cmd sdk", async (t) => {
 
   await t.test("baseUrl path prefix is preserved", async () => {
     const cmd = createClient(async () => jsonResponse(200, {})).cmd({
-      baseUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai/sandbox/sb-1",
+      baseUrl: "https://sandbox-gateway.cloud.seaart.ai/sandbox/sb-1",
       fetch: async (input) => {
-        assert.equal(String(input), "https://hermes-gateway.sandbox.cloud.vtrix.ai/sandbox/sb-1/run");
+        assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/sandbox/sb-1/run");
         return jsonResponse(200, { stdout: "ok", stderr: "", exit_code: 0, duration_ms: 1 });
       },
     });

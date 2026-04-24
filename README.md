@@ -35,7 +35,7 @@ Most applications only need the root client:
 import { SandboxClient } from "@seacloudai/sandbox";
 
 const client = new SandboxClient({
-  baseUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai",
+  baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
   apiKey: process.env.SEACLOUD_API_KEY,
   timeoutMs: 180_000,
 });
@@ -70,7 +70,7 @@ for (const sandbox of listed) {
 import { SandboxClient } from "@seacloudai/sandbox";
 
 const client = new SandboxClient({
-  baseUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai",
+  baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
   apiKey: process.env.SEACLOUD_API_KEY,
 });
 
@@ -89,7 +89,7 @@ console.log(template.templateID, template.buildID);
 import { SandboxClient } from "@seacloudai/sandbox";
 
 const client = new SandboxClient({
-  baseUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai",
+  baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
   apiKey: process.env.SEACLOUD_API_KEY,
 });
 
@@ -203,7 +203,7 @@ Use production smoke tests only with explicitly provided credentials and disposa
 
 ```bash
 SANDBOX_RUN_INTEGRATION=1 \
-SANDBOX_TEST_BASE_URL=https://hermes-gateway.sandbox.cloud.vtrix.ai \
+SANDBOX_TEST_BASE_URL=https://sandbox-gateway.cloud.seaart.ai \
 SANDBOX_TEST_API_KEY=... \
 SANDBOX_TEST_TEMPLATE_ID=tpl-base-dc11799b9f9f4f9e \
 npm run test:integration
@@ -223,7 +223,7 @@ npm test
 
 ```bash
 SANDBOX_RUN_INTEGRATION=1 \
-SANDBOX_TEST_BASE_URL=https://hermes-gateway.sandbox.cloud.vtrix.ai \
+SANDBOX_TEST_BASE_URL=https://sandbox-gateway.cloud.seaart.ai \
 SANDBOX_TEST_API_KEY=... \
 SANDBOX_TEST_TEMPLATE_ID=... \
 npm run test:integration

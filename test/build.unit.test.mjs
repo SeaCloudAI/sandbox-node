@@ -6,7 +6,7 @@ import { APIError, ValidationError } from "../dist/core/index.js";
 
 function createService(handler) {
   return new SandboxClient({
-    baseUrl: "https://hermes-gateway.sandbox.cloud.vtrix.ai",
+    baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
     apiKey: "unit-auth-value",
     fetch: handler,
   }).build;
@@ -28,7 +28,7 @@ test("unit: build system endpoints", async (t) => {
 
   await t.test("direct build does not send auth headers", async () => {
     const service = createService(async (input, init) => {
-      assert.equal(String(input), "https://hermes-gateway.sandbox.cloud.vtrix.ai/build");
+      assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/build");
       const headers = new Headers(init.headers);
       assert.equal(headers.get("X-Namespace-ID"), null);
       assert.equal(headers.get("Content-Type"), "application/json");
@@ -181,7 +181,7 @@ test("unit: build template endpoints", async (t) => {
 test("unit: build request encoding and validation", async (t) => {
   await t.test("create build marks compat empty object response", async () => {
     const service = createService(async (input, init) => {
-      assert.equal(String(input), "https://hermes-gateway.sandbox.cloud.vtrix.ai/api/v1/templates/tpl-1/builds");
+      assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/api/v1/templates/tpl-1/builds");
       assert.equal(init.method, "POST");
       assert.deepEqual(JSON.parse(init.body), { buildID: "build-abc", fromTemplate: "base" });
       return jsonResponse(202, {});
@@ -193,7 +193,7 @@ test("unit: build request encoding and validation", async (t) => {
 
   await t.test("create build supports native response and omits body for empty request", async () => {
     const service = createService(async (input, init) => {
-      assert.equal(String(input), "https://hermes-gateway.sandbox.cloud.vtrix.ai/api/v1/templates/tpl-1/builds");
+      assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/api/v1/templates/tpl-1/builds");
       assert.equal(init.body, undefined);
       const headers = new Headers(init.headers);
       assert.equal(headers.get("Content-Type"), null);
@@ -319,7 +319,7 @@ test("unit: build request encoding and validation", async (t) => {
       }
       if (url.pathname.includes("/files/")) {
         if (url.pathname.endsWith("/" + "a".repeat(64))) {
-          return jsonResponse(200, { present: false, url: "https://hermes-gateway.sandbox.cloud.vtrix.ai" });
+          return jsonResponse(200, { present: false, url: "https://sandbox-gateway.cloud.seaart.ai" });
         }
         return jsonResponse(200, { present: true });
       }
