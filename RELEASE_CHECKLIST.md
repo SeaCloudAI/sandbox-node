@@ -26,5 +26,8 @@ npm run test:integration
 
 - Update `package.json` version and `CHANGELOG.md`.
 - Build with `npm run build`.
-- Publish with `npm publish --access public`.
+- For GitHub Actions publishing, add repository secret `NPM_TOKEN` and use `.github/workflows/publish.yml`.
+  Secret name: `NPM_TOKEN`
+  Repository: `SeaCloudAI/sandbox-node`
+- Manual fallback: publish with `npm publish --access public`.
 - Create and push a signed tag, for example `git tag -s v0.1.0 -m "v0.1.0"`.

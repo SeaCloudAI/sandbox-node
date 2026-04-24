@@ -234,4 +234,5 @@ Use a runtime-enabled template for CMD integration coverage. For SeaCloudAI prod
 ## Release
 
 - See `CHANGELOG.md` for release notes.
+- GitHub Actions can publish to npm through `.github/workflows/publish.yml`.
 - See `RELEASE_CHECKLIST.md` before tagging or publishing a new version.
