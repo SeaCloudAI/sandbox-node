@@ -16,16 +16,45 @@ npm install @seacloudai/sandbox
 
 `control` and `build` use the gateway `baseUrl`. Runtime access is derived from sandbox create/detail/connect responses; callers should not hardcode runtime endpoints or tokens. Domain models and helpers are imported from their subpaths.
 
-## Recommended Workflow
+## Environment
 
-Most applications only need the root client:
+Use environment variables for gateway configuration in all examples and quick starts:
 
-1. Initialize `new SandboxClient({ baseUrl, apiKey })`.
-2. Create, list, get, or connect sandboxes from the root client.
-3. Keep working from the bound sandbox object:
-   `reload()`, `logs()`, `pause()`, `refresh()`, `setTimeout()`, `connect()`, `delete()`.
-4. When the sandbox exposes `envdUrl`, switch into runtime operations through `sandbox.runtime`.
-5. Use `client.build` only for template/build workflows.
+- `SEACLOUD_BASE_URL`: SeaCloudAI gateway entrypoint
+- `SEACLOUD_API_KEY`: API key used for gateway routing and authentication
+- `SEACLOUD_TEMPLATE_ID`: sandbox template identifier or official template type for your target environment
+
+Set them once in your shell:
+
+```bash
+export SEACLOUD_BASE_URL="https://sandbox-gateway.cloud.seaart.ai"
+export SEACLOUD_API_KEY="..."
+export SEACLOUD_TEMPLATE_ID="tpl-..."
+```
+
+Default production gateway:
+
+```text
+https://sandbox-gateway.cloud.seaart.ai
+```
+
+Use `SEACLOUD_TEMPLATE_ID` for production integrations. It can be either a concrete template ID such as `tpl-...` or a stable official template type such as `base`, `claude`, or `codex` when your environment publishes those official templates.
+
+## Production Readiness
+
+- Initialize one root client per process and reuse it.
+- Treat every quick start as creating billable or quota-bound resources unless it explicitly cleans them up.
+- Prefer explicit template references from configuration over hardcoded example values.
+- In SeaCloudAI environments, prefer official template types such as `base`, `claude`, or `codex` when you want a stable platform-managed entrypoint.
+- Use longer client timeouts for `waitReady` flows and image builds.
+- Derive runtime access from sandbox responses instead of storing runtime endpoints or tokens in config.
+
+## Compatibility
+
+- Node.js: requires `>=18` as declared in `package.json`.
+- API model: this SDK targets the unified SeaCloudAI sandbox gateway and keeps public template APIs limited to user-facing fields.
+- Stability: operator/admin routes may exist on the gateway, but they are not part of the public SDK workflow described in this README.
+- Retry model: treat create/delete/build operations as remote control-plane actions; add idempotency and retry policy in your application layer according to your workload.
 
 ## Quick Start
 
@@ -35,21 +64,24 @@ Most applications only need the root client:
 import { SandboxClient } from "@seacloudai/sandbox";
 
 const client = new SandboxClient({
-  baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+  baseUrl: process.env.SEACLOUD_BASE_URL,
   apiKey: process.env.SEACLOUD_API_KEY,
   timeoutMs: 180_000,
 });
 
 const sandbox = await client.createSandbox({
-  templateID: "base",
-  workspaceId: "node-sdk-demo",
+  templateID: process.env.SEACLOUD_TEMPLATE_ID,
   timeout: 1800,
   waitReady: true,
 });
 
-console.log(sandbox.sandboxID, sandbox.envdUrl);
-if (sandbox.envdUrl) {
-  console.log(sandbox.runtime.baseUrl);
+try {
+  console.log(sandbox.sandboxID, sandbox.envdUrl);
+  if (sandbox.envdUrl) {
+    console.log(sandbox.runtime.baseUrl);
+  }
+} finally {
+  await sandbox.delete();
 }
 ```
 
@@ -70,17 +102,19 @@ for (const sandbox of listed) {
 import { SandboxClient } from "@seacloudai/sandbox";
 
 const client = new SandboxClient({
-  baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+  baseUrl: process.env.SEACLOUD_BASE_URL,
   apiKey: process.env.SEACLOUD_API_KEY,
 });
 
 const template = await client.build.createTemplate({
   name: "demo",
-  visibility: "personal",
   image: "docker.io/library/alpine:3.20",
 });
-
-console.log(template.templateID, template.buildID);
+try {
+  console.log(template.templateID, template.buildID);
+} finally {
+  await client.build.deleteTemplate(template.templateID);
+}
 ```
 
 ### Runtime Helper
@@ -89,7 +123,7 @@ console.log(template.templateID, template.buildID);
 import { SandboxClient } from "@seacloudai/sandbox";
 
 const client = new SandboxClient({
-  baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+  baseUrl: process.env.SEACLOUD_BASE_URL,
   apiKey: process.env.SEACLOUD_API_KEY,
 });
 
@@ -113,7 +147,7 @@ try {
 }
 ```
 
-## Root Client First
+## Recommended Usage
 
 For most integrations, stay on the root client as long as possible:
 
@@ -134,7 +168,6 @@ Low-level subpath modules remain available when you want direct stateless calls 
 - system: `metrics`, `shutdown`
 - sandboxes: `createSandbox`, `listSandboxes`, `getSandbox`, `deleteSandbox`
 - sandbox operations: `getSandboxLogs`, `pauseSandbox`, `connectSandbox`, `setSandboxTimeout`, `refreshSandbox`, `sendHeartbeat`
-- admin: `getPoolStatus`, `startRollingUpdate`, `getRollingUpdateStatus`, `cancelRollingUpdate`
 
 Recommended root-client path:
 
@@ -144,6 +177,12 @@ Recommended root-client path:
 
 Low-level direct methods like `deleteSandbox` and `getSandboxLogs` remain available on the root client when you want stateless calls.
 
+### Operator APIs
+
+The root client also includes operator-oriented methods such as `getPoolStatus`, `startRollingUpdate`, `getRollingUpdateStatus`, and `cancelRollingUpdate`.
+
+These routes are intended for platform operators, not normal application workloads. Keep them out of business-facing integrations unless you are explicitly building operational tooling.
+
 ### Build Plane Namespace
 
 `client.build` exposes:
@@ -152,6 +191,18 @@ Low-level direct methods like `deleteSandbox` and `getSandboxLogs` remain availa
 - direct build: `directBuild`
 - templates: `createTemplate`, `listTemplates`, `getTemplateByAlias`, `getTemplate`, `updateTemplate`, `deleteTemplate`
 - builds: `createBuild`, `getBuildFile`, `rollbackTemplate`, `listBuilds`, `getBuild`, `getBuildStatus`, `getBuildLogs`
+
+The public template request surface intentionally stays small: `name`, `image` or `dockerfile`, and a few optional runtime settings such as `visibility`, `baseTemplateID`, `envs`, `cpuCount`, `memoryMB`, `diskSizeMB`, `ttlSeconds`, `port`, `startCmd`, `readyCmd`.
+
+`createTemplate` and `updateTemplate` reject `visibility="official"` in the public SDK.
+
+`getTemplateByAlias` is a stable-ref lookup endpoint. It resolves a template by `templateID` or by an official template `type`; it should not be treated as a personal/team display-name search API.
+
+## Resource Safety
+
+- The quick starts are written for disposable resources and should be adapted before copy-pasting into production jobs.
+- Prefer explicit cleanup with `await sandbox.delete()` and `await client.build.deleteTemplate(...)` when running probes, smoke tests, or CI.
+- For long-lived workloads, move cleanup and timeout policy into your own lifecycle manager instead of relying on sample code defaults.
 
 ### Runtime Namespace
 
@@ -203,8 +254,8 @@ Use production smoke tests only with explicitly provided credentials and disposa
 
 ```bash
 SANDBOX_RUN_INTEGRATION=1 \
-SANDBOX_TEST_BASE_URL=https://sandbox-gateway.cloud.seaart.ai \
-SANDBOX_TEST_API_KEY=... \
+SANDBOX_TEST_BASE_URL="${SEACLOUD_BASE_URL}" \
+SANDBOX_TEST_API_KEY="${SEACLOUD_API_KEY}" \
 SANDBOX_TEST_TEMPLATE_ID=tpl-base-dc11799b9f9f4f9e \
 npm run test:integration
 ```
@@ -223,8 +274,8 @@ npm test
 
 ```bash
 SANDBOX_RUN_INTEGRATION=1 \
-SANDBOX_TEST_BASE_URL=https://sandbox-gateway.cloud.seaart.ai \
-SANDBOX_TEST_API_KEY=... \
+SANDBOX_TEST_BASE_URL="${SEACLOUD_BASE_URL}" \
+SANDBOX_TEST_API_KEY="${SEACLOUD_API_KEY}" \
 SANDBOX_TEST_TEMPLATE_ID=... \
 npm run test:integration
 ```

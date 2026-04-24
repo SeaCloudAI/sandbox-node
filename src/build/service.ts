@@ -20,11 +20,27 @@ import type {
   TemplateCreateRequest,
   TemplateCreateResponse,
   TemplateResponse,
+  TemplateUpdateRequest,
   TemplateUpdateResponse,
 } from "./types.js";
 
 const DNS_LABEL_RE = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 const SHA256_RE = /^[a-f0-9]{64}$/;
+const TEMPLATE_REQUEST_FIELDS = new Set([
+  "name",
+  "visibility",
+  "baseTemplateID",
+  "dockerfile",
+  "image",
+  "envs",
+  "cpuCount",
+  "memoryMB",
+  "diskSizeMB",
+  "ttlSeconds",
+  "port",
+  "startCmd",
+  "readyCmd",
+]);
 
 export class SandboxBuildService extends BaseTransport {
   async metrics(): Promise<string> {
@@ -47,6 +63,7 @@ export class SandboxBuildService extends BaseTransport {
   }
 
   async createTemplate(body: TemplateCreateRequest = {}): Promise<TemplateCreateResponse> {
+    this.validateTemplateBody(body);
     return this.requestJson<TemplateCreateResponse>(
       "/api/v1/templates",
       {
@@ -88,9 +105,10 @@ export class SandboxBuildService extends BaseTransport {
 
   async updateTemplate(
     templateID: string,
-    body: TemplateCreateRequest = {},
+    body: TemplateUpdateRequest = {},
   ): Promise<TemplateUpdateResponse> {
     this.requireTemplateID(templateID);
+    this.validateTemplateBody(body);
     return this.requestJson<TemplateUpdateResponse>(
       `/api/v1/templates/${encodeURIComponent(templateID)}`,
       {
@@ -250,6 +268,18 @@ export class SandboxBuildService extends BaseTransport {
   private validateGetTemplateParams(params: GetTemplateParams): void {
     if (params.limit !== undefined && (!Number.isInteger(params.limit) || params.limit < 0 || params.limit > 100)) {
       throw new ValidationError("template build history limit must be an integer between 0 and 100");
+    }
+  }
+
+  private validateTemplateBody(body: object): void {
+    const payload = body as Record<string, unknown>;
+    for (const key of Object.keys(payload)) {
+      if (!TEMPLATE_REQUEST_FIELDS.has(key)) {
+        throw new ValidationError(`template field ${key} is not supported by the public SDK`);
+      }
+    }
+    if (typeof payload.visibility === "string" && payload.visibility.trim().toLowerCase() === "official") {
+      throw new ValidationError("official templates are not supported by the public SDK");
     }
   }
 

@@ -13,20 +13,30 @@ export interface DirectBuildResponse {
 
 export interface TemplateCreateRequest {
   name?: string;
-  alias?: string;
   visibility?: string;
-  public?: boolean;
-  type?: string;
-  version?: string;
+  baseTemplateID?: string;
   dockerfile?: string;
   image?: string;
-  tags?: string[];
   envs?: Record<string, string>;
   cpuCount?: number;
   memoryMB?: number;
   diskSizeMB?: number;
-  envdVersion?: string;
-  storageType?: string;
+  ttlSeconds?: number;
+  port?: number;
+  startCmd?: string;
+  readyCmd?: string;
+}
+
+export interface TemplateUpdateRequest {
+  name?: string;
+  visibility?: string;
+  baseTemplateID?: string;
+  dockerfile?: string;
+  image?: string;
+  envs?: Record<string, string>;
+  cpuCount?: number;
+  memoryMB?: number;
+  diskSizeMB?: number;
   ttlSeconds?: number;
   port?: number;
   startCmd?: string;
@@ -99,6 +109,7 @@ export interface TemplateResponse {
   tags: string[];
   name: string;
   visibility: string;
+  baseTemplateID?: string;
   image: string;
   imageSource: string;
   envdVersion: string;

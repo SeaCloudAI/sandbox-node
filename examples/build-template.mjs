@@ -16,7 +16,6 @@ const client = new SandboxClient({ baseUrl, apiKey });
 
 const created = await client.build.createTemplate({
   name: `node-build-example-${Date.now()}`,
-  visibility: "personal",
   image,
 });
 
@@ -25,9 +24,6 @@ console.log("created template:", created.templateID, created.buildID, created.na
 try {
   const detail = await client.build.getTemplate(created.templateID);
   console.log("template detail:", detail.templateID, detail.image, detail.visibility);
-
-  const builds = await client.build.listBuilds(created.templateID);
-  console.log("build history count:", builds.builds.length);
 } finally {
   if (!keepResources) {
     await client.build.deleteTemplate(created.templateID);

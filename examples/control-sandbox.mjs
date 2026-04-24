@@ -20,7 +20,6 @@ const client = new SandboxClient({ baseUrl, apiKey });
 
 const created = await client.createSandbox({
   templateID,
-  workspaceId: `node-example-${Date.now()}`,
   timeout: 1800,
   waitReady: true,
 });
@@ -33,9 +32,6 @@ if (created.envdUrl) {
 try {
   const detail = await created.reload();
   console.log("sandbox detail:", detail.sandboxID, detail.state, detail.status);
-
-  const heartbeat = await client.sendHeartbeat(created.sandboxID, { status: "healthy" });
-  console.log("heartbeat:", heartbeat.received, heartbeat.status, heartbeat.requestId);
 } finally {
   if (!keepResources) {
     await created.delete();

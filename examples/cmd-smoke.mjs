@@ -15,7 +15,7 @@ if (!templateID) {
 }
 
 const keepResources = ["1", "true", "yes"].includes((process.env.SANDBOX_EXAMPLE_KEEP_RESOURCES ?? "").trim().toLowerCase());
-const root = ((process.env.SANDBOX_EXAMPLE_SANDBOX_ROOT ?? "").trim() || "/root/workspace").replace(/\/+$/, "");
+const root = "/tmp";
 
 const client = new SandboxClient({ baseUrl, apiKey });
 
@@ -37,7 +37,7 @@ try {
   const file = await runtime.readFile({ path: filePath });
   console.log("file content:", await file.text());
 
-  const listing = await runtime.listDir({ path: root, depth: 1 });
+  const listing = await runtime.listDir({ path: root });
   console.log("directory entries:", listing.entries.length);
 
   const run = await runtime.run({
@@ -46,17 +46,6 @@ try {
   });
   console.log("run result:", run.exit_code, JSON.stringify(run.stdout));
 
-  const stream = await runtime.start({
-    process: { cmd: "cat" },
-    tag: `node-cmd-example-${Date.now()}`,
-  });
-
-  try {
-    const firstFrame = await stream.next();
-    console.log("stream started:", firstFrame?.event?.start?.pid, firstFrame?.event?.start?.cmdId);
-  } finally {
-    await stream.close();
-  }
 } finally {
   if (!keepResources) {
     await created.delete();

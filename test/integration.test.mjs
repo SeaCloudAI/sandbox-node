@@ -236,13 +236,12 @@ test("build plane integration", { skip: !shouldRun }, async (t) => {
 
     const templateID = created.templateID;
     const buildID = created.buildID;
-    const alias = created.aliases?.[0] || name;
 
     try {
       const listed = await build.listTemplates({ limit: 20 });
       assert.ok(Array.isArray(listed));
 
-      const aliased = await build.getTemplateByAlias(alias);
+      const aliased = await build.getTemplateByAlias(templateID);
       assert.equal(aliased.templateID, templateID);
 
       const detail = await build.getTemplate(templateID, { limit: 10 });

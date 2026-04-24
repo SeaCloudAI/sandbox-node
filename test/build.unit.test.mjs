@@ -67,6 +67,7 @@ test("unit: build template endpoints", async (t) => {
         assert.deepEqual(JSON.parse(init.body), {
           name: "demo",
           visibility: "personal",
+          baseTemplateID: "tpl-base-1",
           image: "docker.io/library/alpine:3.20",
           cpuCount: 2,
           envs: { APP_ENV: "test" },
@@ -87,7 +88,7 @@ test("unit: build template endpoints", async (t) => {
         assert.equal(url.searchParams.get("offset"), "40");
         return jsonResponse(200, []);
       }
-      if (url.pathname === "/api/v1/templates/aliases/demo") {
+      if (url.pathname === "/api/v1/templates/aliases/tpl-1") {
         return jsonResponse(200, { templateID: "tpl-1", public: false });
       }
       if (url.pathname === "/api/v1/templates/tpl-1" && init.method === "GET") {
@@ -103,6 +104,7 @@ test("unit: build template endpoints", async (t) => {
           tags: ["v1"],
           name: "demo",
           visibility: "personal",
+          baseTemplateID: "tpl-base-1",
           image: "example-image:v1",
           imageSource: "dockerfile",
           envdVersion: "sandbox-builder-v1",
@@ -147,6 +149,7 @@ test("unit: build template endpoints", async (t) => {
     const created = await service.createTemplate({
       name: "demo",
       visibility: "personal",
+      baseTemplateID: "tpl-base-1",
       image: "docker.io/library/alpine:3.20",
       cpuCount: 2,
       envs: { APP_ENV: "test" },
@@ -157,7 +160,7 @@ test("unit: build template endpoints", async (t) => {
       limit: 20,
       offset: 40,
     });
-    const aliased = await service.getTemplateByAlias("demo");
+    const aliased = await service.getTemplateByAlias("tpl-1");
     const detail = await service.getTemplate("tpl-1", {
       limit: 10,
       nextToken: "build-1",
@@ -169,6 +172,7 @@ test("unit: build template endpoints", async (t) => {
     assert.deepEqual(listed, []);
     assert.equal(aliased.templateID, "tpl-1");
     assert.equal(detail.templateID, "tpl-1");
+    assert.equal(detail.baseTemplateID, "tpl-base-1");
     assert.equal(detail.imageSource, "dockerfile");
     assert.equal(detail.createdBy.email, "test-user");
     assert.equal(detail.builds[0].status, "ready");
@@ -394,6 +398,28 @@ test("unit: build request encoding and validation", async (t) => {
     await assert.rejects(
       service.getBuildFile("tpl-1", "bad"),
       ValidationError,
+    );
+    await assert.rejects(
+      service.createTemplate({
+        name: "official-template",
+        visibility: "official",
+        image: "docker.io/library/alpine:3.20",
+      }),
+      /official templates are not supported by the public SDK/,
+    );
+    await assert.rejects(
+      service.updateTemplate("tpl-1", {
+        visibility: "official",
+      }),
+      /official templates are not supported by the public SDK/,
+    );
+    await assert.rejects(
+      service.createTemplate({
+        name: "demo",
+        image: "docker.io/library/alpine:3.20",
+        type: "base",
+      }),
+      /template field type is not supported by the public SDK/,
     );
   });
 

@@ -21,6 +21,7 @@ export type {
   TemplateCreateRequest,
   TemplateCreateResponse,
   TemplateResponse,
+  TemplateUpdateRequest,
   TemplateUpdateResponse,
   TemplateUser,
 } from "./types.js";
