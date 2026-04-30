@@ -5,6 +5,7 @@ import { SDK_VERSION } from "../version.js";
 export interface ClientOptions {
   baseUrl: string;
   apiKey: string;
+  projectId?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
 }
@@ -19,6 +20,7 @@ export class BaseTransport {
   constructor(options: ClientOptions) {
     const baseUrl = options.baseUrl.trim().replace(/\/+$/, "");
     const apiKey = options.apiKey.trim();
+    const projectId = options.projectId?.trim();
 
     if (!baseUrl) {
       throw new ConfigurationError("baseUrl is required");
@@ -35,6 +37,7 @@ export class BaseTransport {
       Authorization: `Bearer ${apiKey}`,
       "User-Agent": `seacloudai-sandbox-node/${SDK_VERSION}`,
       "X-API-Key": apiKey,
+      ...(projectId ? { "X-Project-ID": projectId } : {}),
     });
   }
 

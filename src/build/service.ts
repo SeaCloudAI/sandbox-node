@@ -1,4 +1,4 @@
-import { APIError, ValidationError } from "../core/errors.js";
+import { ValidationError } from "../core/errors.js";
 import { BaseTransport } from "../core/transport.js";
 import type {
   BuildHistoryResponse,
@@ -26,18 +26,27 @@ import type {
 
 const DNS_LABEL_RE = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 const SHA256_RE = /^[a-f0-9]{64}$/;
-const TEMPLATE_REQUEST_FIELDS = new Set([
+const TEMPLATE_CREATE_FIELDS = new Set([
   "name",
-  "visibility",
-  "baseTemplateID",
-  "dockerfile",
-  "image",
-  "envs",
+  "tags",
+  "alias",
+  "teamID",
   "cpuCount",
   "memoryMB",
-  "diskSizeMB",
-  "ttlSeconds",
-  "port",
+  "extensions",
+]);
+
+const TEMPLATE_UPDATE_FIELDS = new Set([
+  "public",
+  "extensions",
+]);
+const BUILD_REQUEST_FIELDS = new Set([
+  "fromTemplate",
+  "fromImage",
+  "fromImageRegistry",
+  "force",
+  "steps",
+  "filesHash",
   "startCmd",
   "readyCmd",
 ]);
@@ -63,7 +72,7 @@ export class SandboxBuildService extends BaseTransport {
   }
 
   async createTemplate(body: TemplateCreateRequest = {}): Promise<TemplateCreateResponse> {
-    this.validateTemplateBody(body);
+    this.validateTemplateCreateBody(body);
     return this.requestJson<TemplateCreateResponse>(
       "/api/v1/templates",
       {
@@ -93,6 +102,16 @@ export class SandboxBuildService extends BaseTransport {
     );
   }
 
+  async resolveTemplateRef(ref: string): Promise<TemplateAliasResponse> {
+    if (!ref.trim()) {
+      throw new ValidationError("ref is required");
+    }
+    return this.requestJson<TemplateAliasResponse>(
+      `/api/v1/templates/resolve/${encodeURIComponent(ref)}`,
+      { method: "GET" },
+    );
+  }
+
   async getTemplate(
     templateID: string,
     params: GetTemplateParams = {},
@@ -108,7 +127,7 @@ export class SandboxBuildService extends BaseTransport {
     body: TemplateUpdateRequest = {},
   ): Promise<TemplateUpdateResponse> {
     this.requireTemplateID(templateID);
-    this.validateTemplateBody(body);
+    this.validateTemplateUpdateBody(body);
     return this.requestJson<TemplateUpdateResponse>(
       `/api/v1/templates/${encodeURIComponent(templateID)}`,
       {
@@ -130,27 +149,23 @@ export class SandboxBuildService extends BaseTransport {
 
   async createBuild(
     templateID: string,
+    buildID: string,
     body?: BuildRequest,
   ): Promise<BuildTriggerResponse> {
     this.requireTemplateID(templateID);
+    this.requireBuildID(buildID);
+    this.validateClientBuildID(buildID);
     this.validateBuildRequest(body);
     const payload = body && !isEmptyBuildRequest(body) ? JSON.stringify(body) : undefined;
-    const response = await this.request(
-      `/api/v1/templates/${encodeURIComponent(templateID)}/builds`,
+    return this.requestJson<BuildTriggerResponse>(
+      `/api/v1/templates/${encodeURIComponent(templateID)}/builds/${encodeURIComponent(buildID)}`,
       {
         method: "POST",
         headers: payload === undefined ? undefined : this.buildJSONHeaders(),
         body: payload,
       },
+      [202],
     );
-    if (response.status !== 202) {
-      throw await APIError.fromResponse(response);
-    }
-    const parsed = (await response.json()) as Partial<BuildResponse>;
-    return {
-      ...parsed,
-      empty: Object.keys(parsed).length === 0,
-    };
   }
 
   async getBuildFile(
@@ -212,8 +227,7 @@ export class SandboxBuildService extends BaseTransport {
       `/api/v1/templates/${encodeURIComponent(templateID)}/builds/${encodeURIComponent(buildID)}/status`,
       encodeBuildStatusParams(params),
     );
-    const parsed = await this.requestJson<Record<string, unknown>>(path, { method: "GET" });
-    return normalizeBuildStatusResponse(parsed);
+    return this.requestJson<BuildStatusResponse>(path, { method: "GET" });
   }
 
   async getBuildLogs(
@@ -247,6 +261,13 @@ export class SandboxBuildService extends BaseTransport {
     }
   }
 
+  private validateClientBuildID(buildID: string): void {
+    const trimmed = buildID.trim();
+    if (trimmed.length > 63 || !DNS_LABEL_RE.test(trimmed)) {
+      throw new ValidationError("buildID must be a lowercase DNS label up to 63 characters");
+    }
+  }
+
   private requireHash(hash: string): void {
     if (!hash.trim()) {
       throw new ValidationError("hash is required");
@@ -271,15 +292,27 @@ export class SandboxBuildService extends BaseTransport {
     }
   }
 
-  private validateTemplateBody(body: object): void {
+  private validateTemplateCreateBody(body: object): void {
     const payload = body as Record<string, unknown>;
     for (const key of Object.keys(payload)) {
-      if (!TEMPLATE_REQUEST_FIELDS.has(key)) {
+      if (!TEMPLATE_CREATE_FIELDS.has(key)) {
         throw new ValidationError(`template field ${key} is not supported by the public SDK`);
       }
     }
-    if (typeof payload.visibility === "string" && payload.visibility.trim().toLowerCase() === "official") {
-      throw new ValidationError("official templates are not supported by the public SDK");
+    if (payload.extensions !== undefined) {
+      validateTemplateExtensions(payload.extensions);
+    }
+  }
+
+  private validateTemplateUpdateBody(body: object): void {
+    const payload = body as Record<string, unknown>;
+    for (const key of Object.keys(payload)) {
+      if (!TEMPLATE_UPDATE_FIELDS.has(key)) {
+        throw new ValidationError(`template field ${key} is not supported by the public SDK`);
+      }
+    }
+    if (payload.extensions !== undefined) {
+      validateTemplateExtensions(payload.extensions);
     }
   }
 
@@ -287,52 +320,56 @@ export class SandboxBuildService extends BaseTransport {
     if (!body) {
       return;
     }
-    if (body.buildID !== undefined) {
-      const buildID = body.buildID.trim();
-      if (!buildID || buildID.length > 63 || !DNS_LABEL_RE.test(buildID)) {
-        throw new ValidationError("buildID must be a lowercase DNS label up to 63 characters");
+    for (const key of Object.keys(body as Record<string, unknown>)) {
+      if (!BUILD_REQUEST_FIELDS.has(key)) {
+        throw new ValidationError(`build field ${key} is not supported by the public SDK`);
       }
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "buildID")) {
+      throw new ValidationError("buildID must be provided in the createBuild path, not in body");
     }
     if (body.filesHash !== undefined && !SHA256_RE.test(body.filesHash)) {
       throw new ValidationError("filesHash must be a 64-character lowercase hex SHA256");
     }
-    if (body.fromImageRegistry?.trim()) {
-      throw new ValidationError("fromImageRegistry is not supported yet");
+    if (body.force !== undefined && typeof body.force !== "boolean") {
+      throw new ValidationError("force must be a boolean");
     }
-    if (body.force !== undefined) {
-      throw new ValidationError("force rebuild is not supported yet");
-    }
-
-    const hashes = new Set<string>();
-    if (body.filesHash) {
-      hashes.add(body.filesHash);
+    if (body.fromImageRegistry !== undefined) {
+      validateRegistryConfig(body.fromImageRegistry);
     }
 
     for (const [index, step] of (body.steps ?? []).entries()) {
-      const stepType = step.type?.trim() ?? "";
+      const stepType = step.type?.trim().toUpperCase() ?? "";
       if (!stepType) {
         throw new ValidationError(`steps[${index}].type is required`);
       }
-      if (!["files", "context"].includes(stepType)) {
-        throw new ValidationError(`steps[${index}].type must be files or context`);
+      switch (stepType) {
+        case "COPY":
+          if (!step.filesHash?.trim()) {
+            throw new ValidationError(`steps[${index}].filesHash is required for COPY`);
+          }
+          if (!SHA256_RE.test(step.filesHash)) {
+            throw new ValidationError(`steps[${index}].filesHash must be a 64-character lowercase hex SHA256`);
+          }
+          if ((step.args?.length ?? 0) < 2) {
+            throw new ValidationError(`steps[${index}].args must include src and dest for COPY`);
+          }
+          break;
+        case "ENV":
+          if ((step.args?.length ?? 0) === 0 || (step.args?.length ?? 0) % 2 !== 0) {
+            throw new ValidationError(`steps[${index}].args must contain ENV key/value pairs`);
+          }
+          break;
+        case "RUN":
+        case "WORKDIR":
+        case "USER":
+          if (!step.args?.[0]?.trim()) {
+            throw new ValidationError(`steps[${index}].args must include the ${stepType} value`);
+          }
+          break;
+        default:
+          throw new ValidationError(`steps[${index}].type must be one of COPY, ENV, RUN, WORKDIR, USER`);
       }
-      if (!step.filesHash?.trim()) {
-        throw new ValidationError(`steps[${index}].filesHash is required`);
-      }
-      if (!SHA256_RE.test(step.filesHash)) {
-        throw new ValidationError(`steps[${index}].filesHash must be a 64-character lowercase hex SHA256`);
-      }
-      if (step.args?.length) {
-        throw new ValidationError(`steps[${index}].args is not supported yet`);
-      }
-      if (step.force !== undefined) {
-        throw new ValidationError(`steps[${index}].force is not supported yet`);
-      }
-      hashes.add(step.filesHash);
-    }
-
-    if (hashes.size > 1) {
-      throw new ValidationError("multiple different filesHash values are not supported yet");
     }
   }
 
@@ -358,6 +395,64 @@ export class SandboxBuildService extends BaseTransport {
     if (params.source !== undefined && !["temporary", "persistent"].includes(params.source)) {
       throw new ValidationError('build logs source must be "temporary" or "persistent"');
     }
+  }
+}
+
+function validateRegistryConfig(config: unknown): void {
+  if (typeof config !== "object" || config === null) {
+    throw new ValidationError("fromImageRegistry must be an object");
+  }
+  const payload = config as Record<string, unknown>;
+  const type = typeof payload.type === "string" ? payload.type.trim() : "";
+  if (!type) {
+    throw new ValidationError("fromImageRegistry.type is required");
+  }
+  switch (type) {
+    case "registry":
+      if (!String(payload.username ?? "").trim() || !String(payload.password ?? "").trim()) {
+        throw new ValidationError("fromImageRegistry registry config requires username and password");
+      }
+      return;
+    case "aws":
+      if (!String(payload.awsAccessKeyId ?? "").trim() || !String(payload.awsSecretAccessKey ?? "").trim() || !String(payload.awsRegion ?? "").trim()) {
+        throw new ValidationError("fromImageRegistry aws config requires awsAccessKeyId, awsSecretAccessKey, and awsRegion");
+      }
+      return;
+    case "gcp":
+      if (!String(payload.serviceAccountJson ?? "").trim()) {
+        throw new ValidationError("fromImageRegistry gcp config requires serviceAccountJson");
+      }
+      return;
+    default:
+      throw new ValidationError(`fromImageRegistry.type ${JSON.stringify(type)} is not supported`);
+  }
+}
+
+function validateTemplateExtensions(extensions: unknown): void {
+  if (typeof extensions !== "object" || extensions === null) {
+    throw new ValidationError("extensions must be an object");
+  }
+  const payload = extensions as Record<string, unknown>;
+  for (const key of Object.keys(payload)) {
+    if (key !== "seacloud") {
+      throw new ValidationError(`template extension ${key} is not supported by the public SDK`);
+    }
+  }
+  const seacloud = payload.seacloud;
+  if (seacloud === undefined) {
+    return;
+  }
+  if (typeof seacloud !== "object" || seacloud === null) {
+    throw new ValidationError("extensions.seacloud must be an object");
+  }
+  const allowed = new Set(["baseTemplateID", "visibility", "envs", "storageType", "storageSizeGB"]);
+  for (const key of Object.keys(seacloud as Record<string, unknown>)) {
+    if (!allowed.has(key)) {
+      throw new ValidationError(`template extension field ${key} is not supported by the public SDK`);
+    }
+  }
+  if (String((seacloud as Record<string, unknown>).visibility ?? "").trim() === "official") {
+    throw new ValidationError("extensions.seacloud.visibility=official is not supported by the public SDK");
   }
 }
 
@@ -429,37 +524,12 @@ function encodeBuildLogsParams(params: BuildLogsParams): URLSearchParams {
 }
 
 function isEmptyBuildRequest(body: BuildRequest): boolean {
-  return !body.buildID?.trim()
-    && !body.fromTemplate?.trim()
+  return !body.fromTemplate?.trim()
     && !body.fromImage?.trim()
-    && !body.fromImageRegistry?.trim()
+    && body.fromImageRegistry === undefined
     && body.force === undefined
     && (body.steps?.length ?? 0) === 0
     && !body.filesHash?.trim()
     && !body.startCmd?.trim()
     && !body.readyCmd?.trim();
-}
-
-function normalizeBuildStatusResponse(raw: Record<string, unknown>): BuildStatusResponse {
-  const rawLogs = Array.isArray(raw.logs) ? raw.logs : [];
-  const rawLogEntries = Array.isArray(raw.logEntries) ? raw.logEntries : [];
-  const logEntries = rawLogEntries.length > 0
-    ? rawLogEntries
-    : rawLogs.filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null);
-
-  return {
-    buildID: String(raw.buildID ?? ""),
-    templateID: String(raw.templateID ?? ""),
-    status: String(raw.status ?? ""),
-    logs: rawLogs.filter((entry): entry is string => typeof entry === "string"),
-    logEntries: logEntries.map((entry) => ({
-      timestamp: String(entry.timestamp ?? ""),
-      level: String(entry.level ?? ""),
-      step: String(entry.step ?? ""),
-      message: String(entry.message ?? ""),
-    })),
-    reason: raw.reason,
-    createdAt: String(raw.createdAt ?? ""),
-    updatedAt: String(raw.updatedAt ?? ""),
-  };
 }

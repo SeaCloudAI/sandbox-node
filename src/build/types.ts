@@ -11,36 +11,50 @@ export interface DirectBuildResponse {
   imageFullName: string;
 }
 
-export interface TemplateCreateRequest {
-  name?: string;
-  visibility?: string;
+export interface PublicSeacloudTemplateExtensions {
   baseTemplateID?: string;
-  dockerfile?: string;
-  image?: string;
+  visibility?: string;
   envs?: Record<string, string>;
-  cpuCount?: number;
-  memoryMB?: number;
-  diskSizeMB?: number;
+  storageType?: string;
+  storageSizeGB?: number;
+}
+
+export interface PublicTemplateExtensions {
+  seacloud?: PublicSeacloudTemplateExtensions;
+}
+
+export interface SeacloudTemplateExtensions {
+  baseTemplateID?: string;
+  visibility?: string;
+  envs?: Record<string, string>;
+  storageType?: string;
+  storageSizeGB?: number;
+  image?: string;
+  imageSource?: string;
+  projectID?: string;
   ttlSeconds?: number;
   port?: number;
   startCmd?: string;
   readyCmd?: string;
 }
 
-export interface TemplateUpdateRequest {
+export interface TemplateExtensions {
+  seacloud?: SeacloudTemplateExtensions;
+}
+
+export interface TemplateCreateRequest {
   name?: string;
-  visibility?: string;
-  baseTemplateID?: string;
-  dockerfile?: string;
-  image?: string;
-  envs?: Record<string, string>;
+  tags?: string[];
+  alias?: string;
+  teamID?: string;
   cpuCount?: number;
   memoryMB?: number;
-  diskSizeMB?: number;
-  ttlSeconds?: number;
-  port?: number;
-  startCmd?: string;
-  readyCmd?: string;
+  extensions?: PublicTemplateExtensions;
+}
+
+export interface TemplateUpdateRequest {
+  public?: boolean;
+  extensions?: PublicTemplateExtensions;
 }
 
 export interface TemplateCreateResponse {
@@ -80,12 +94,34 @@ export interface TemplateUser {
 
 export interface ListedTemplate {
   templateID: string;
-  buildID: string;
+  buildID?: string;
+  cpuCount: number;
+  memoryMB: number;
+  diskSizeMB: number;
   buildStatus: string;
   public: boolean;
   names: string[];
   aliases: string[];
+  createdAt: string;
+  updatedAt: string;
   createdBy?: TemplateUser | null;
+  lastSpawnedAt?: string | null;
+  spawnCount: number;
+  buildCount: number;
+  envdVersion?: string;
+  extensions?: TemplateExtensions;
+}
+
+export interface TemplateBuild {
+  buildID: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt?: string | null;
+  cpuCount: number;
+  memoryMB: number;
+  diskSizeMB: number;
+  envdVersion?: string;
 }
 
 export interface BuildResponse {
@@ -100,37 +136,17 @@ export interface BuildResponse {
 }
 
 export interface TemplateResponse {
-  templateID: string;
-  buildID: string;
-  buildStatus: string;
   public: boolean;
+  templateID: string;
   names: string[];
   aliases: string[];
-  tags: string[];
-  name: string;
-  visibility: string;
-  baseTemplateID?: string;
-  image: string;
-  imageSource: string;
-  envdVersion: string;
-  cpuCount: number;
-  memoryMB: number;
-  diskSizeMB: number;
-  createdBy?: TemplateUser | null;
-  createdByID: string;
-  projectID: string;
   createdAt: string;
   updatedAt: string;
   lastSpawnedAt?: string | null;
   spawnCount: number;
-  buildCount: number;
-  storageType: string;
-  ttlSeconds: number;
-  port: number;
-  startCmd: string;
-  readyCmd: string;
-  builds?: BuildResponse[];
+  builds?: TemplateBuild[];
   nextToken?: string;
+  extensions?: TemplateExtensions;
 }
 
 export interface BuildStep {
@@ -140,11 +156,30 @@ export interface BuildStep {
   force?: boolean;
 }
 
+export interface GenericRegistryConfig {
+  type: "registry";
+  username: string;
+  password: string;
+}
+
+export interface AWSRegistryConfig {
+  type: "aws";
+  awsAccessKeyId: string;
+  awsSecretAccessKey: string;
+  awsRegion: string;
+}
+
+export interface GCPRegistryConfig {
+  type: "gcp";
+  serviceAccountJson: string;
+}
+
+export type RegistryConfig = GenericRegistryConfig | AWSRegistryConfig | GCPRegistryConfig;
+
 export interface BuildRequest {
-  buildID?: string;
   fromTemplate?: string;
   fromImage?: string;
-  fromImageRegistry?: string;
+  fromImageRegistry?: RegistryConfig;
   force?: boolean;
   steps?: BuildStep[];
   filesHash?: string;
@@ -152,9 +187,7 @@ export interface BuildRequest {
   readyCmd?: string;
 }
 
-export interface BuildTriggerResponse extends Partial<BuildResponse> {
-  empty: boolean;
-}
+export type BuildTriggerResponse = Record<string, never>;
 
 export interface FilePresenceResponse {
   present: boolean;

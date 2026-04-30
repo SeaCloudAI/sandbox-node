@@ -1,4 +1,4 @@
-import { SandboxClient } from "../dist/index.js";
+import { SandboxClient, templateBuild } from "../dist/index.js";
 
 const baseUrl = mustEnv("SEACLOUD_BASE_URL");
 const apiKey = mustEnv("SEACLOUD_API_KEY");
@@ -17,8 +17,6 @@ await logMetricLine("build", () => client.build.metrics());
 const templateName = `node-full-workflow-${Date.now()}`;
 const createdTemplate = await client.build.createTemplate({
   name: templateName,
-  visibility: "personal",
-  dockerfile: dockerfile(runtimeBaseImage),
 });
 
 const templateID = createdTemplate.templateID;
@@ -29,7 +27,16 @@ let createdSandbox;
 
 try {
   if (!buildID) {
-    buildID = (await client.build.getTemplate(templateID)).buildID ?? "";
+    const requestedBuildID = `build-${Date.now().toString(16)}`;
+    await client.build.createBuild(
+      templateID,
+      requestedBuildID,
+      templateBuild()
+        .fromImage(runtimeBaseImage)
+        .run("mkdir -p /workspace && printf 'hello from node full workflow\\n' >/workspace/built-by-template.txt")
+        .toRequest(),
+    );
+    buildID = requestedBuildID;
   }
   if (!buildID) {
     throw new Error("buildID is empty");
@@ -53,7 +60,12 @@ try {
   }
 
   const templateDetail = await client.build.getTemplate(templateID);
-  console.log("template detail:", templateDetail.name, templateDetail.imageSource, templateDetail.buildStatus);
+  console.log(
+    "template detail:",
+    templateDetail.templateID,
+    templateDetail.builds?.length ?? 0,
+    templateDetail.extensions?.seacloud?.imageSource,
+  );
 
   createdSandbox = await client.createSandbox({
     templateID,
@@ -130,14 +142,6 @@ function mustEnv(name) {
 
 function envEnabled(name) {
   return ["1", "true", "yes"].includes((process.env[name] ?? "").trim().toLowerCase());
-}
-
-function dockerfile(runtimeBaseImage) {
-  return [
-    `FROM ${runtimeBaseImage}`,
-    "RUN mkdir -p /workspace && printf 'hello from node full workflow\\n' >/workspace/built-by-template.txt",
-    "",
-  ].join("\n");
 }
 
 function firstNonEmptyLine(text) {

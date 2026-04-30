@@ -1,5 +1,7 @@
 export { SandboxBuildService } from "./service.js";
+export { TemplateBuildBuilder, templateBuild } from "./builder.js";
 export type {
+  AWSRegistryConfig,
   BuildHistoryResponse,
   BuildLogEntry,
   BuildLogsParams,
@@ -13,9 +15,14 @@ export type {
   DirectBuildRequest,
   DirectBuildResponse,
   FilePresenceResponse,
+  GCPRegistryConfig,
+  GenericRegistryConfig,
   GetTemplateParams,
   ListTemplatesParams,
   ListedTemplate,
+  PublicSeacloudTemplateExtensions,
+  PublicTemplateExtensions,
+  RegistryConfig,
   RollbackRequest,
   TemplateAliasResponse,
   TemplateCreateRequest,

@@ -15,16 +15,17 @@ Before running any example, export these variables once in your shell. Use the g
 
 Recommended reading order:
 
-1. `full-workflow.mjs`: create a template from a custom Dockerfile -> wait for build -> start sandbox -> connect runtime -> run -> logs/metrics -> cleanup
+1. `full-workflow.mjs`: create a template -> trigger an E2B-style build -> wait for build -> start sandbox -> connect runtime -> run -> logs/metrics -> cleanup
 2. `control-sandbox.mjs`: root client -> create sandbox -> bound sandbox helpers -> cleanup
 3. `cmd-smoke.mjs`: create a sandbox through the gateway, then write/read/list/run through runtime
-4. `build-template.mjs`: template/build workflows through `client.build`
+4. `build-template.mjs`: template/build workflows through `client.build` plus `templateBuild()`
 
 ## Full Workflow
 
 This is the primary example when evaluating the SDK end to end:
 
-- create a template from a custom Dockerfile
+- create a template
+- trigger a build from a runtime-enabled base image plus E2B-style steps
 - wait for the build to finish
 - inspect build status, build logs, and template detail
 - start a sandbox from that template
@@ -39,7 +40,7 @@ Optional env:
 
 - `SANDBOX_EXAMPLE_KEEP_RESOURCES=1`
 
-The base image must already be runtime-enabled for CMD APIs. The example Dockerfile extends that image and adds app-specific content under `/workspace`.
+The base image must already be runtime-enabled for CMD APIs. The example build starts from that image and adds app-specific content under `/workspace` through a `RUN` step.
 
 ```bash
 node examples/full-workflow.mjs
@@ -69,8 +70,9 @@ node examples/control-sandbox.mjs
 
 ## Build Plane
 
-Recommended path: the example uses the root `SandboxClient` and `client.build`.
-The flow stays minimal: create template with `name + image` -> fetch template -> cleanup.
+Recommended path: the example uses the root `SandboxClient`, `client.build`, and `templateBuild()`.
+The flow now shows the current public builder contract more explicitly: create template with alias -> alias lookup / stable resolve -> client-generated `buildID` -> build request through the fluent helper -> status polling -> build history + template detail -> cleanup.
+If you need SeaCloud-specific template settings such as `visibility`, `baseTemplateID`, or storage options, pass them through `extensions.seacloud` on `createTemplate` / `updateTemplate`.
 
 Required env:
 

@@ -10,11 +10,11 @@ npm install @seacloudai/sandbox
 
 ## Client Initialization
 
-- unified gateway client: `new SandboxClient({ baseUrl, apiKey })`
+- unified gateway client: `new SandboxClient({ baseUrl, apiKey, projectId? })`
 - build plane via root client: `client.build`
 - runtime helper: `sandbox.runtime` or `client.runtimeFromSandbox(sandbox)`
 
-`control` and `build` use the gateway `baseUrl`. Runtime access is derived from sandbox create/detail/connect responses; callers should not hardcode runtime endpoints or tokens. Domain models and helpers are imported from their subpaths.
+`control` and `build` use the gateway `baseUrl`. Runtime access is derived from sandbox create/detail/connect responses; callers should not hardcode runtime endpoints or tokens. `projectId` is an optional gateway routing header for project-scoped deployments.
 
 ## Environment
 
@@ -22,6 +22,7 @@ Use environment variables for gateway configuration in all examples and quick st
 
 - `SEACLOUD_BASE_URL`: SeaCloudAI gateway entrypoint
 - `SEACLOUD_API_KEY`: API key used for gateway routing and authentication
+- `SEACLOUD_PROJECT_ID`: optional project routing key for project-scoped gateways
 - `SEACLOUD_TEMPLATE_ID`: sandbox template identifier or official template type for your target environment
 
 Set them once in your shell:
@@ -29,6 +30,7 @@ Set them once in your shell:
 ```bash
 export SEACLOUD_BASE_URL="https://sandbox-gateway.cloud.seaart.ai"
 export SEACLOUD_API_KEY="..."
+export SEACLOUD_PROJECT_ID="project-..."
 export SEACLOUD_TEMPLATE_ID="tpl-..."
 ```
 
@@ -66,6 +68,7 @@ import { SandboxClient } from "@seacloudai/sandbox";
 const client = new SandboxClient({
   baseUrl: process.env.SEACLOUD_BASE_URL,
   apiKey: process.env.SEACLOUD_API_KEY,
+  projectId: process.env.SEACLOUD_PROJECT_ID,
   timeoutMs: 180_000,
 });
 
@@ -99,19 +102,28 @@ for (const sandbox of listed) {
 ### Build Plane Through Root Client
 
 ```ts
-import { SandboxClient } from "@seacloudai/sandbox";
+import { SandboxClient, templateBuild } from "@seacloudai/sandbox";
 
 const client = new SandboxClient({
   baseUrl: process.env.SEACLOUD_BASE_URL,
   apiKey: process.env.SEACLOUD_API_KEY,
+  projectId: process.env.SEACLOUD_PROJECT_ID,
 });
 
 const template = await client.build.createTemplate({
   name: "demo",
-  image: "docker.io/library/alpine:3.20",
 });
 try {
-  console.log(template.templateID, template.buildID);
+  const buildID = `build-${Date.now().toString(16)}`;
+  await client.build.createBuild(
+    template.templateID,
+    buildID,
+    templateBuild()
+      .fromImage("docker.io/library/alpine:3.20")
+      .run("echo hello-from-node >/tmp/hello.txt")
+      .toRequest(),
+  );
+  console.log(template.templateID, buildID);
 } finally {
   await client.build.deleteTemplate(template.templateID);
 }
@@ -151,11 +163,12 @@ try {
 
 For most integrations, stay on the root client as long as possible:
 
-- initialize once with `new SandboxClient({ baseUrl, apiKey })`
+- initialize once with `new SandboxClient({ baseUrl, apiKey, projectId? })`
 - use `createSandbox`, `listSandboxes`, `getSandbox`, `connectSandbox`
 - continue from the returned sandbox object with `reload()`, `logs()`, `pause()`, `refresh()`, `setTimeout()`, `connect()`, `delete()`
 - only switch to runtime with `runtime` when you need file/process/stream operations
 - use `client.build` only for template/build workflows
+- use `templateBuild()` when you want a small E2B-style helper that compiles into `BuildRequest`
 
 Low-level subpath modules remain available when you want direct stateless calls or need request/response types explicitly.
 
@@ -189,14 +202,25 @@ These routes are intended for platform operators, not normal application workloa
 
 - system: `metrics`
 - direct build: `directBuild`
-- templates: `createTemplate`, `listTemplates`, `getTemplateByAlias`, `getTemplate`, `updateTemplate`, `deleteTemplate`
+- templates: `createTemplate`, `listTemplates`, `getTemplateByAlias`, `resolveTemplateRef`, `getTemplate`, `updateTemplate`, `deleteTemplate`
 - builds: `createBuild`, `getBuildFile`, `rollbackTemplate`, `listBuilds`, `getBuild`, `getBuildStatus`, `getBuildLogs`
 
-The public template request surface intentionally stays small: `name`, `image` or `dockerfile`, and a few optional runtime settings such as `visibility`, `baseTemplateID`, `envs`, `cpuCount`, `memoryMB`, `diskSizeMB`, `ttlSeconds`, `port`, `startCmd`, `readyCmd`.
+The public template contract is split into three layers: E2B core top-level fields (`name`, `tags`, `alias`, `teamID`, `cpuCount`, `memoryMB`), SeaCloud template extensions under `extensions.seacloud` (`baseTemplateID`, `visibility`, `envs`, `storageType`, `storageSizeGB`), and build-only fields on `createBuild` (`fromImage`, `fromTemplate`, `steps`, `startCmd`, `readyCmd`, registry credentials, `filesHash`).
 
-`createTemplate` and `updateTemplate` reject `visibility="official"` in the public SDK.
+For Node callers, the public write path and template read path now use different extension models on purpose:
 
-`getTemplateByAlias` is a stable-ref lookup endpoint. It resolves a template by `templateID` or by an official template `type`; it should not be treated as a personal/team display-name search API.
+- `createTemplate` / `updateTemplate` use `PublicTemplateExtensions`
+- `ListedTemplate` / `TemplateResponse` keep the fuller `TemplateExtensions` shape returned by the service
+
+This matches the current public builder API contract: request fields are intentionally narrower than response fields.
+
+`createTemplate` and `updateTemplate` reject `visibility="official"` on public routes, including `extensions.seacloud.visibility === "official"`.
+
+`createBuild` now follows the wire contract directly: callers pass top-level `filesHash` when needed, and the SDK returns the raw `202 {}` trigger response without adding helper fields.
+
+`getTemplateByAlias` is a pure alias lookup endpoint. It should only be used with an actual published alias value.
+
+`resolveTemplateRef` is the SeaCloud stable-ref lookup endpoint. It resolves a template by `templateID`, official template `type`, or visible alias.
 
 ## Resource Safety
 
@@ -230,7 +254,7 @@ Useful CMD helpers from `@seacloudai/sandbox/cmd`:
 
 ## Notes
 
-- The gateway entrypoint only needs `baseUrl + apiKey`.
+- The gateway entrypoint always needs `baseUrl + apiKey`; project-scoped deployments can additionally set `projectId`.
 - Runtime access should be derived from sandbox response objects with `sandbox.runtime` or `runtimeFromSandbox(...)`.
 - `createSandbox` and `getSandbox` return `envdUrl` and `envdAccessToken` when the sandbox exposes nano-executor APIs.
 - Runtime file/process APIs require a template image that starts nano-executor and returns runtime access fields; if runtime APIs return `404`, verify the selected template supports CMD runtime routes.
@@ -238,15 +262,15 @@ Useful CMD helpers from `@seacloudai/sandbox/cmd`:
 - `waitReady: true` can take longer than the default timeout in production; pass `timeoutMs` to `new SandboxClient(...)` for long-wait workflows.
 - HTTP errors are classified into typed errors such as `NotFoundError`, `RateLimitError`, and `ServerError`. Transport timeouts raise `RequestTimeoutError`.
 - Sandbox timeout is validated to `0..86400`; refresh duration to `0..3600`.
-- Build validation currently rejects unsupported `fromImageRegistry`, `force`, and per-step `args`/`force`.
+- Build validation accepts E2B-style `COPY` / `ENV` / `RUN` / `WORKDIR` / `USER` steps, `force`, and structured `fromImageRegistry` credentials (`registry` / `aws` / `gcp`).
 - Some gateways do not expose `/admin/*` or `/build`; the integration suite skips those cases on `404`.
 
 ## Security
 
 - Do not commit `SEACLOUD_API_KEY`, `envdAccessToken`, or sandbox access tokens.
 - Treat runtime tokens as sandbox-scoped secrets. Prefer `sandbox.runtime` or `client.runtimeFromSandbox(...)` so response-scoped runtime access is not copied into configuration.
-- Do not log raw API keys or runtime tokens. SDK errors may include response bodies, so avoid logging full error payloads in multi-tenant systems.
-- The SDK does not construct tenant routing headers. Gateway routing context is derived from the API key.
+- Do not log raw API keys or runtime tokens. SDK errors may include response bodies, so avoid logging full error payloads in shared systems.
+- Set `projectId` in `SandboxClient` when your gateway requires explicit project routing. The SDK sends it as `X-Project-ID`.
 
 ## Production Smoke
 

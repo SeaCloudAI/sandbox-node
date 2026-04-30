@@ -17,6 +17,15 @@ function createClient(handler) {
   });
 }
 
+function createTenantClient(handler) {
+  return new SandboxClient({
+    baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+    apiKey: "unit-auth-value",
+    projectId: "project-1",
+    fetch: handler,
+  });
+}
+
 function createCmdService(handler) {
   return createClient(async () => jsonResponse(200, {})).cmd({
     baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
@@ -48,11 +57,12 @@ test("unit: system endpoints", async (t) => {
 
 test("unit: sandbox request encoding", async (t) => {
   await t.test("create sandbox sends headers and body", async () => {
-    const client = createClient(async (input, init) => {
+    const client = createTenantClient(async (input, init) => {
       assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes");
       assert.equal(init.method, "POST");
       const headers = new Headers(init.headers);
       assert.equal(headers.get("Content-Type"), "application/json");
+      assert.equal(headers.get("X-Project-ID"), "project-1");
       assert.deepEqual(JSON.parse(init.body), { templateID: "tpl", waitReady: true });
       return jsonResponse(201, {
         sandboxID: "sb-1",
@@ -144,14 +154,30 @@ test("unit: sandbox request encoding", async (t) => {
   });
 
   await t.test("build namespace reuses gateway configuration", async () => {
-    const client = createClient(async (input, init) => {
+    const client = createTenantClient(async (input, init) => {
       assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/api/v1/templates");
       assert.equal(init.method, "POST");
-      assert.deepEqual(JSON.parse(init.body), { name: "demo", image: "docker.io/library/alpine:3.20" });
+      const headers = new Headers(init.headers);
+      assert.equal(headers.get("X-Project-ID"), "project-1");
+      assert.deepEqual(JSON.parse(init.body), {
+        name: "demo",
+        alias: "demo",
+        tags: ["base"],
+        teamID: "team-1",
+        cpuCount: 2,
+        memoryMB: 1024,
+      });
       return jsonResponse(202, { templateID: "tpl-1", buildID: "build-1", names: ["demo"], tags: [], aliases: [], public: false });
     });
 
-    const response = await client.build.createTemplate({ name: "demo", image: "docker.io/library/alpine:3.20" });
+    const response = await client.build.createTemplate({
+      name: "demo",
+      alias: "demo",
+      tags: ["base"],
+      teamID: "team-1",
+      cpuCount: 2,
+      memoryMB: 1024,
+    });
     assert.equal(response.templateID, "tpl-1");
   });
 

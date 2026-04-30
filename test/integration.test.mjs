@@ -227,27 +227,37 @@ test("build plane integration", { skip: !shouldRun }, async (t) => {
 
   await t.test("template lifecycle", async () => {
     const name = `node-build-sdk-${Date.now()}`;
+    const alias = name;
     const created = await build.createTemplate({
       name,
-      visibility: "personal",
-      image: buildImage,
+      alias,
     });
     assert.ok(created.templateID);
 
     const templateID = created.templateID;
-    const buildID = created.buildID;
+    let buildID = created.buildID;
+
+    if (!buildID) {
+      const requestedBuildID = `build-${Date.now().toString(16)}`;
+      const triggered = await build.createBuild(templateID, requestedBuildID, { fromImage: buildImage });
+      assert.deepEqual(triggered, {});
+      buildID = requestedBuildID;
+    }
 
     try {
       const listed = await build.listTemplates({ limit: 20 });
       assert.ok(Array.isArray(listed));
 
-      const aliased = await build.getTemplateByAlias(templateID);
+      const aliased = await build.getTemplateByAlias(alias);
       assert.equal(aliased.templateID, templateID);
+
+      const resolved = await build.resolveTemplateRef(templateID);
+      assert.equal(resolved.templateID, templateID);
 
       const detail = await build.getTemplate(templateID, { limit: 10 });
       assert.equal(detail.templateID, templateID);
 
-      const updated = await build.updateTemplate(templateID, { name: `${name}-updated` });
+      const updated = await build.updateTemplate(templateID, { public: false });
       assert.ok(updated.names.length > 0);
 
       const file = await build.getBuildFile(templateID, "a".repeat(64));

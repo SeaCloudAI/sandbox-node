@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { SandboxClient } from "../dist/index.js";
+import { SandboxClient, TemplateBuildBuilder, templateBuild } from "../dist/index.js";
 import { APIError, ValidationError } from "../dist/core/index.js";
 
 function createService(handler) {
   return new SandboxClient({
     baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
     apiKey: "unit-auth-value",
+    projectId: "project-1",
     fetch: handler,
   }).build;
 }
@@ -31,6 +32,7 @@ test("unit: build system endpoints", async (t) => {
       assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/build");
       const headers = new Headers(init.headers);
       assert.equal(headers.get("X-Namespace-ID"), null);
+      assert.equal(headers.get("X-Project-ID"), "project-1");
       assert.equal(headers.get("Content-Type"), "application/json");
       assert.deepEqual(JSON.parse(init.body), {
         project: "proj",
@@ -66,11 +68,11 @@ test("unit: build template endpoints", async (t) => {
       if (url.pathname === "/api/v1/templates" && init.method === "POST") {
         assert.deepEqual(JSON.parse(init.body), {
           name: "demo",
-          visibility: "personal",
-          baseTemplateID: "tpl-base-1",
-          image: "docker.io/library/alpine:3.20",
+          alias: "demo-alias",
+          tags: ["v1"],
+          teamID: "project-1",
           cpuCount: 2,
-          envs: { APP_ENV: "test" },
+          memoryMB: 1024,
         });
         return jsonResponse(202, {
           templateID: "tpl-1",
@@ -91,48 +93,31 @@ test("unit: build template endpoints", async (t) => {
       if (url.pathname === "/api/v1/templates/aliases/tpl-1") {
         return jsonResponse(200, { templateID: "tpl-1", public: false });
       }
+      if (url.pathname === "/api/v1/templates/resolve/base") {
+        return jsonResponse(200, { templateID: "tpl-1", public: false });
+      }
       if (url.pathname === "/api/v1/templates/tpl-1" && init.method === "GET") {
         assert.equal(url.searchParams.get("limit"), "10");
         assert.equal(url.searchParams.get("nextToken"), "build-1");
         return jsonResponse(200, {
           templateID: "tpl-1",
-          buildID: "build-2",
-          buildStatus: "ready",
           public: false,
           names: ["user/demo"],
           aliases: ["demo"],
-          tags: ["v1"],
-          name: "demo",
-          visibility: "personal",
-          baseTemplateID: "tpl-base-1",
-          image: "example-image:v1",
-          imageSource: "dockerfile",
-          envdVersion: "sandbox-builder-v1",
-          cpuCount: 2,
-          memoryMB: 1024,
-          diskSizeMB: 5120,
-          createdBy: { id: "user", email: "test-user" },
-          createdByID: "user",
-          projectID: "proj-1",
           createdAt: "2026-01-01T00:00:00Z",
           updatedAt: "2026-01-01T00:01:00Z",
           lastSpawnedAt: "2026-01-01T00:02:00Z",
           spawnCount: 3,
-          buildCount: 4,
-          storageType: "ephemeral",
-          ttlSeconds: 300,
-          port: 9000,
-          startCmd: "npm start",
-          readyCmd: "test-ready-command",
           builds: [{
             buildID: "build-2",
-            templateID: "tpl-1",
             status: "ready",
-            image: "example-image:v1",
-            errorMessage: "",
             createdAt: "2026-01-01T00:00:00Z",
             updatedAt: "2026-01-01T00:02:00Z",
             finishedAt: "2026-01-01T00:02:00Z",
+            cpuCount: 2,
+            memoryMB: 1024,
+            diskSizeMB: 5120,
+            envdVersion: "sandbox-builder-v1",
           }],
           nextToken: "build-next",
         });
@@ -148,11 +133,11 @@ test("unit: build template endpoints", async (t) => {
 
     const created = await service.createTemplate({
       name: "demo",
-      visibility: "personal",
-      baseTemplateID: "tpl-base-1",
-      image: "docker.io/library/alpine:3.20",
+      alias: "demo-alias",
+      tags: ["v1"],
+      teamID: "project-1",
       cpuCount: 2,
-      envs: { APP_ENV: "test" },
+      memoryMB: 1024,
     });
     const listed = await service.listTemplates({
       visibility: "team",
@@ -161,62 +146,104 @@ test("unit: build template endpoints", async (t) => {
       offset: 40,
     });
     const aliased = await service.getTemplateByAlias("tpl-1");
+    const resolved = await service.resolveTemplateRef("base");
     const detail = await service.getTemplate("tpl-1", {
       limit: 10,
       nextToken: "build-1",
     });
-    const updated = await service.updateTemplate("tpl-1", { name: "demo-2" });
+    const updated = await service.updateTemplate("tpl-1", { public: false });
     await service.deleteTemplate("tpl-1");
 
     assert.equal(created.templateID, "tpl-1");
     assert.deepEqual(listed, []);
     assert.equal(aliased.templateID, "tpl-1");
+    assert.equal(resolved.templateID, "tpl-1");
     assert.equal(detail.templateID, "tpl-1");
-    assert.equal(detail.baseTemplateID, "tpl-base-1");
-    assert.equal(detail.imageSource, "dockerfile");
-    assert.equal(detail.createdBy.email, "test-user");
     assert.equal(detail.builds[0].status, "ready");
+    assert.equal(detail.builds[0].memoryMB, 1024);
     assert.equal(detail.nextToken, "build-next");
     assert.deepEqual(updated.names, ["user/demo-2"]);
     assert.equal(calls.at(-1).method, "DELETE");
   });
 });
 
+test("unit: template build builder encodes requests", async (t) => {
+  await t.test("chain helper expands into a BuildRequest", async () => {
+    const request = templateBuild()
+      .fromImage("docker.io/library/node:20")
+      .fromImageRegistry({
+        type: "registry",
+        username: "robot",
+        password: "secret",
+      })
+      .force()
+      .copy("package.json", "/app/package.json", "a".repeat(64), { force: true })
+      .run("npm ci")
+      .env({ NODE_ENV: "production", PORT: "3000" })
+      .workdir("/app")
+      .user("node")
+      .startCmd("npm start")
+      .readyCmd("test-ready-command")
+      .filesHash("b".repeat(64))
+      .toRequest();
+
+    assert.equal(request.fromImage, "docker.io/library/node:20");
+    assert.equal(request.force, true);
+    assert.equal(request.fromImageRegistry.username, "robot");
+    assert.deepEqual(request.steps[0], {
+      type: "COPY",
+      args: ["package.json", "/app/package.json"],
+      filesHash: "a".repeat(64),
+      force: true,
+    });
+    assert.deepEqual(request.steps[2], {
+      type: "ENV",
+      args: ["NODE_ENV", "production", "PORT", "3000"],
+    });
+    assert.equal(request.startCmd, "npm start");
+    assert.equal(request.readyCmd, "test-ready-command");
+  });
+
+  await t.test("toRequest returns a defensive copy", async () => {
+    const builder = new TemplateBuildBuilder()
+      .fromImage("docker.io/library/alpine:3.20")
+      .copy("src", "/dst", "a".repeat(64))
+      .env("NODE_ENV", "production");
+
+    const request = builder.toRequest();
+    request.fromImage = "changed";
+    request.steps[0].args[0] = "mutated";
+
+    const next = builder.toRequest();
+    assert.equal(next.fromImage, "docker.io/library/alpine:3.20");
+    assert.equal(next.steps[0].args[0], "src");
+  });
+});
+
 test("unit: build request encoding and validation", async (t) => {
-  await t.test("create build marks compat empty object response", async () => {
+  await t.test("create build returns the raw empty object response", async () => {
     const service = createService(async (input, init) => {
-      assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/api/v1/templates/tpl-1/builds");
+      assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/api/v1/templates/tpl-1/builds/build-abc");
       assert.equal(init.method, "POST");
-      assert.deepEqual(JSON.parse(init.body), { buildID: "build-abc", fromTemplate: "base" });
+      assert.deepEqual(JSON.parse(init.body), { fromTemplate: "base" });
       return jsonResponse(202, {});
     });
 
-    const response = await service.createBuild("tpl-1", { buildID: "build-abc", fromTemplate: "base" });
-    assert.equal(response.empty, true);
+    const response = await service.createBuild("tpl-1", "build-abc", { fromTemplate: "base" });
+    assert.deepEqual(response, {});
   });
 
-  await t.test("create build supports native response and omits body for empty request", async () => {
+  await t.test("create build omits body for empty request and expects empty response", async () => {
     const service = createService(async (input, init) => {
-      assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/api/v1/templates/tpl-1/builds");
+      assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/api/v1/templates/tpl-1/builds/build-empty");
       assert.equal(init.body, undefined);
       const headers = new Headers(init.headers);
       assert.equal(headers.get("Content-Type"), null);
-      return jsonResponse(202, {
-        buildID: "build-1",
-        templateID: "tpl-1",
-        status: "uploaded",
-        image: "example-image:v1",
-        errorMessage: "",
-        createdAt: "2026-01-01T00:00:00Z",
-        updatedAt: "2026-01-01T00:00:01Z",
-        finishedAt: "2026-01-01T00:00:02Z",
-      });
+      return jsonResponse(202, {});
     });
 
-    const response = await service.createBuild("tpl-1");
-    assert.equal(response.empty, false);
-    assert.equal(response.buildID, "build-1");
-    assert.equal(response.status, "uploaded");
+    const response = await service.createBuild("tpl-1", "build-empty");
+    assert.deepEqual(response, {});
   });
 
   await t.test("create build encodes supported fields", async () => {
@@ -224,24 +251,42 @@ test("unit: build request encoding and validation", async (t) => {
       assert.deepEqual(JSON.parse(init.body), {
         fromImage: "docker.io/library/node:20",
         filesHash: "a".repeat(64),
-        steps: [{ type: "files", filesHash: "a".repeat(64) }],
+        fromImageRegistry: {
+          type: "registry",
+          username: "robot",
+          password: "secret",
+        },
+        steps: [
+          { type: "COPY", filesHash: "a".repeat(64), args: ["package.json", "/app/package.json"] },
+          { type: "RUN", args: ["npm install"] },
+          { type: "ENV", args: ["NODE_ENV", "production"] },
+        ],
         startCmd: "npm start",
         readyCmd: "test-ready-command",
       });
       return jsonResponse(202, {});
     });
 
-    const response = await service.createBuild("tpl-1", {
+    const response = await service.createBuild("tpl-1", "build-encoded", {
       fromImage: "docker.io/library/node:20",
       filesHash: "a".repeat(64),
-      steps: [{ type: "files", filesHash: "a".repeat(64) }],
+      fromImageRegistry: {
+        type: "registry",
+        username: "robot",
+        password: "secret",
+      },
+      steps: [
+        { type: "COPY", filesHash: "a".repeat(64), args: ["package.json", "/app/package.json"] },
+        { type: "RUN", args: ["npm install"] },
+        { type: "ENV", args: ["NODE_ENV", "production"] },
+      ],
       startCmd: "npm start",
       readyCmd: "test-ready-command",
     });
-    assert.equal(response.empty, true);
+    assert.deepEqual(response, {});
   });
 
-  await t.test("status/logs/build endpoints support anonymous polling and normalize logEntries", async () => {
+  await t.test("status/logs/build endpoints support anonymous polling", async () => {
     const service = createService(async (input) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/status")) {
@@ -251,7 +296,8 @@ test("unit: build request encoding and validation", async (t) => {
           buildID: "build-1",
           templateID: "tpl-1",
           status: "building",
-          logs: [{
+          logs: ["raw-line"],
+          logEntries: [{
             timestamp: "2026-01-01T00:00:00Z",
             level: "info",
             step: "build",
@@ -290,29 +336,8 @@ test("unit: build request encoding and validation", async (t) => {
     assert.equal(history.total, 0);
     assert.equal(build.buildID, "build-1");
     assert.equal(status.logEntries[0].message, "building image");
+    assert.deepEqual(status.logs, ["raw-line"]);
     assert.deepEqual(logs.logs, []);
-  });
-
-  await t.test("status prefers explicit logEntries when both are present", async () => {
-    const service = createService(async () => jsonResponse(200, {
-      buildID: "build-1",
-      templateID: "tpl-1",
-      status: "building",
-      logs: ["raw-line"],
-      logEntries: [{
-        timestamp: "2026-01-01T00:00:00Z",
-        level: "info",
-        step: "build",
-        message: "structured log",
-      }],
-      reason: "queued",
-      createdAt: "2026-01-01T00:00:00Z",
-      updatedAt: "2026-01-01T00:00:01Z",
-    }));
-
-    const response = await service.getBuildStatus("tpl-1", "build-1");
-    assert.deepEqual(response.logs, ["raw-line"]);
-    assert.equal(response.logEntries[0].message, "structured log");
   });
 
   await t.test("rollback and getBuildFile encode requests", async () => {
@@ -341,33 +366,48 @@ test("unit: build request encoding and validation", async (t) => {
 
   await t.test("validations reject unsupported build fields and bad params", async () => {
     const service = createService(async () => jsonResponse(200, {}));
+    const createAcceptingService = createService(async () => jsonResponse(202, {}));
+    const updateAcceptingService = createService(async () => jsonResponse(200, { names: ["user/demo"] }));
 
     await assert.rejects(
-      service.createBuild("tpl-1", { fromImageRegistry: "docker.io/node:20" }),
+      service.createBuild("tpl-1", "build-test", { fromImageRegistry: "docker.io/node:20" }),
       ValidationError,
     );
     await assert.rejects(
-      service.createBuild("tpl-1", {
-        steps: [{ type: "files", filesHash: "a".repeat(64), args: ["x"] }],
+      service.createBuild("tpl-1", "build-test", {
+        steps: [{ type: "COPY", filesHash: "a".repeat(64), args: ["x"] }],
       }),
       ValidationError,
     );
     await assert.rejects(
-      service.createBuild("tpl-1", {
-        buildID: "Build-Uppercase",
+      service.createBuild("tpl-1", "build-test", {
+        steps: [{ type: "ENV", args: ["NODE_ENV"] }],
       }),
       ValidationError,
     );
     await assert.rejects(
-      service.createBuild("tpl-1", {
-        filesHash: "bad",
+      service.createBuild("tpl-1", "Build-Uppercase"),
+      ValidationError,
+    );
+    await assert.rejects(
+      service.createBuild("tpl-1", "build-test", {
+        buildID: "build-body",
       }),
       ValidationError,
     );
     await assert.rejects(
-      service.createBuild("tpl-1", {
-        filesHash: "a".repeat(64),
-        steps: [{ type: "files", filesHash: "b".repeat(64) }],
+      service.createBuild("tpl-1", "build-test", {
+        extensions: {
+          seacloud: {
+            filesHash: "bad",
+          },
+        },
+      }),
+      ValidationError,
+    );
+    await assert.rejects(
+      service.createBuild("tpl-1", "build-test", {
+        force: "yes",
       }),
       ValidationError,
     );
@@ -403,20 +443,60 @@ test("unit: build request encoding and validation", async (t) => {
       service.createTemplate({
         name: "official-template",
         visibility: "official",
-        image: "docker.io/library/alpine:3.20",
       }),
-      /official templates are not supported by the public SDK/,
+      /template field visibility is not supported by the public SDK/,
+    );
+    await assert.doesNotReject(
+      createAcceptingService.createTemplate({
+        name: "demo",
+        extensions: {
+          seacloud: {
+            baseTemplateID: "tpl-base-1",
+            visibility: "team",
+          },
+        },
+      }),
+    );
+    await assert.rejects(
+      service.createTemplate({
+        name: "demo",
+        extensions: {
+          seacloud: {
+            visibility: "official",
+          },
+        },
+      }),
+      /extensions\.seacloud\.visibility=official is not supported by the public SDK/,
     );
     await assert.rejects(
       service.updateTemplate("tpl-1", {
         visibility: "official",
       }),
-      /official templates are not supported by the public SDK/,
+      /template field visibility is not supported by the public SDK/,
+    );
+    await assert.doesNotReject(
+      updateAcceptingService.updateTemplate("tpl-1", {
+        extensions: {
+          seacloud: {
+            baseTemplateID: "tpl-base-2",
+            storageType: "persistent",
+          },
+        },
+      }),
+    );
+    await assert.rejects(
+      service.updateTemplate("tpl-1", {
+        extensions: {
+          seacloud: {
+            visibility: "official",
+          },
+        },
+      }),
+      /extensions\.seacloud\.visibility=official is not supported by the public SDK/,
     );
     await assert.rejects(
       service.createTemplate({
         name: "demo",
-        image: "docker.io/library/alpine:3.20",
         type: "base",
       }),
       /template field type is not supported by the public SDK/,
