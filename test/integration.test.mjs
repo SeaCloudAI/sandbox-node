@@ -331,22 +331,14 @@ test("build plane integration", { skip: !shouldRun }, async (t) => {
   const { client, buildImage } = integrationConfig();
   const build = client.build;
 
-  await t.test("direct build anonymous polling", async () => {
+  await t.test("direct build polling", async () => {
     let direct;
-    try {
-      direct = await build.directBuild({
-        project: "sdk-build-integration",
-        image: "node-direct-build",
-        tag: `t${Date.now()}`,
-        dockerfile: "FROM alpine:3.20\nRUN echo direct-build-test >/tmp/direct-build.txt\n",
-      });
-    } catch (error) {
-      if (error?.statusCode === 404) {
-        t.skip("direct build endpoint is not exposed by this gateway");
-        return;
-      }
-      throw error;
-    }
+    direct = await build.directBuild({
+      project: "sdk-build-integration",
+      image: "node-direct-build",
+      tag: `t${Date.now()}`,
+      dockerfile: "FROM alpine:3.20\nRUN echo direct-build-test >/tmp/direct-build.txt\n",
+    });
     assert.ok(direct.templateID);
     assert.ok(direct.buildID);
     assert.ok(direct.imageFullName);
@@ -355,8 +347,8 @@ test("build plane integration", { skip: !shouldRun }, async (t) => {
       const status = await waitForBuildReady(build, direct.templateID, direct.buildID);
       assert.equal(status.status, "ready");
 
-      const build = await build.getBuild(direct.templateID, direct.buildID);
-      assert.equal(build.buildID, direct.buildID);
+      const buildDetail = await build.getBuild(direct.templateID, direct.buildID);
+      assert.equal(buildDetail.buildID, direct.buildID);
 
       const logs = await build.getBuildLogs(direct.templateID, direct.buildID, { limit: 10 });
       assert.ok(Array.isArray(logs.logs));

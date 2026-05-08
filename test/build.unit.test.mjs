@@ -27,11 +27,13 @@ test("unit: build system endpoints", async (t) => {
     assert.equal(response, "metric 1\n");
   });
 
-  await t.test("direct build does not send auth headers", async () => {
+  await t.test("direct build sends authenticated headers", async () => {
     const service = createService(async (input, init) => {
       assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/build");
       const headers = new Headers(init.headers);
       assert.equal(headers.get("X-Namespace-ID"), null);
+      assert.equal(headers.get("Authorization"), "Bearer unit-auth-value");
+      assert.equal(headers.get("X-API-Key"), "unit-auth-value");
       assert.equal(headers.get("X-Project-ID"), "project-1");
       assert.equal(headers.get("Content-Type"), "application/json");
       assert.deepEqual(JSON.parse(init.body), {
@@ -307,7 +309,7 @@ test("unit: build request encoding and validation", async (t) => {
     assert.deepEqual(response, {});
   });
 
-  await t.test("status/logs/build endpoints support anonymous polling", async () => {
+  await t.test("status/logs/build endpoints support authenticated polling", async () => {
     const service = createService(async (input) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/status")) {
