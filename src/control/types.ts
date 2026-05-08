@@ -6,7 +6,7 @@ export interface VolumeMount {
 }
 
 export interface NewSandboxRequest {
-  templateID: string;
+  templateID?: string;
   workspaceId?: string;
   timeout?: number;
   metadata?: Record<string, string>;
@@ -28,6 +28,7 @@ export interface Sandbox {
   status: string;
   state?: string;
   startedAt: string;
+  activatedAt?: string | null;
   endAt: string;
 }
 
@@ -49,6 +50,7 @@ export interface SandboxDetail {
   state?: string;
   volumeMounts?: VolumeMount[];
   namespace?: string;
+  activatedAt?: string | null;
 }
 
 export interface ListedSandbox {
@@ -66,6 +68,7 @@ export interface ListedSandbox {
   state?: string;
   envdVersion: string;
   volumeMounts?: VolumeMount[];
+  activatedAt?: string | null;
 }
 
 export interface ListSandboxesParams {

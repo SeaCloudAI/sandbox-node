@@ -15,7 +15,7 @@ export class BaseTransport {
   readonly defaultHeaders: Readonly<Record<string, string>>;
   protected readonly timeoutMs: number | undefined;
 
-  private readonly fetchImpl: typeof fetch;
+  protected readonly fetchImpl: typeof fetch;
 
   constructor(options: ClientOptions) {
     const baseUrl = options.baseUrl.trim().replace(/\/+$/, "");
@@ -108,6 +108,10 @@ export class BaseTransport {
     if (!expectedStatuses.includes(response.status)) {
       throw await APIError.fromResponse(response);
     }
+  }
+
+  protected getFetchImpl(): typeof fetch {
+    return this.fetchImpl;
   }
 }
 

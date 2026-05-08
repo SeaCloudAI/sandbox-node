@@ -13,12 +13,16 @@ Shared env:
 
 Before running any example, export these variables once in your shell. Use the gateway entrypoint documented in the root `README.md`.
 
+Example-specific inputs intentionally use the `SANDBOX_EXAMPLE_*` prefix so they do not collide with the production-oriented variables shown in the package root `README.md`.
+Examples focus on the stable lifecycle, template, command, and PTY flows. Watcher APIs are covered in tests instead, because some sandbox filesystem layouts reject them entirely.
+
 Recommended reading order:
 
 1. `full-workflow.mjs`: create a template -> trigger an E2B-style build -> wait for build -> start sandbox -> connect runtime -> run -> logs/metrics -> cleanup
-2. `control-sandbox.mjs`: root client -> create sandbox -> bound sandbox helpers -> cleanup
-3. `cmd-smoke.mjs`: create a sandbox through the gateway, then write/read/list/run through runtime
-4. `build-template.mjs`: template/build workflows through `client.build` plus `templateBuild()`
+2. `template-features.mjs`: `fromDockerfile` -> local `copy(..., { mode, resolveSymlinks })` -> `client.buildTemplateInBackground()` -> `client.getTemplateBuildStatus()` -> existence/detail
+3. `control-sandbox.mjs`: `new SandboxClient(...)` -> `client.create()` -> reload -> cleanup
+4. `cmd-smoke.mjs`: `new SandboxClient(...)` -> `client.create()` -> `files` / `commands` modules
+5. `build-template.mjs`: minimal `new Template()` plus `client.buildTemplate()`
 
 ## Full Workflow
 
@@ -50,8 +54,8 @@ node examples/full-workflow.mjs
 
 This example shows the preferred workflow:
 
-- initialize the root `SandboxClient`
-- create a sandbox from the root client
+- initialize one `SandboxClient`
+- create a sandbox through `client.create(...)`
 - keep operating through the returned bound sandbox object
 - reload once to show the bound-object workflow
 - cleanup through the same object
@@ -70,11 +74,10 @@ node examples/control-sandbox.mjs
 
 ## Build Plane
 
-Recommended path: the example uses the root `SandboxClient`, `client.build`, and `templateBuild()`.
-The flow now shows the current public builder contract more explicitly: create template with alias -> alias lookup / stable resolve -> client-generated `buildID` -> build request through the fluent helper -> status polling -> build history + template detail -> cleanup.
-If you need SeaCloud-specific template settings such as `visibility`, `baseTemplateID`, or storage options, pass them through `extensions.seacloud` on `createTemplate` / `updateTemplate`.
+Recommended path: the example uses `new Template()` plus `client.buildTemplate()`.
+The flow shows the current client-first template workflow directly: template DSL -> build polling -> template detail -> cleanup.
 
-Required env:
+Required env: none
 
 Optional env:
 
@@ -85,11 +88,35 @@ Optional env:
 node examples/build-template.mjs
 ```
 
+## Template Features
+
+This example covers the supported template helpers that are not obvious from the minimal build flow:
+
+- parse a Dockerfile from disk with `fromDockerfile`
+- inspect the generated request with `Template.toJSON(...)` and `Template.toDockerfile(...)`
+- add extra steps with `skipCache()` and `runCmd(..., { user })`
+- upload a local symlink target with `copy(..., { mode, resolveSymlinks })`
+- initialize one `SandboxClient`
+- trigger `client.buildTemplateInBackground(...)` and poll with `client.getTemplateBuildStatus(...)`
+- verify template existence and inspect template detail
+
+Required env: none
+
+Optional env:
+
+- `SANDBOX_EXAMPLE_BUILD_IMAGE`
+- `SANDBOX_EXAMPLE_KEEP_RESOURCES=1`
+
+```bash
+node examples/template-features.mjs
+```
+
 ## CMD Plane
 
-Recommended path: the example uses the root `SandboxClient`, creates a sandbox through the gateway, then derives runtime access from the returned sandbox object.
+Recommended path: the example uses `client.create(...)` and then stays on `files` / `commands`.
 The selected template must include nano-executor runtime support; otherwise file/process/RPC calls can return `404`.
 The flow stays minimal: write file -> read file -> list directory -> run command.
+The example writes under `/root/workspace`, which is the writable sandbox workspace in the current SeaCloud runtime.
 
 Required env:
 

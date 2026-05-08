@@ -29,15 +29,12 @@ const SHA256_RE = /^[a-f0-9]{64}$/;
 const TEMPLATE_CREATE_FIELDS = new Set([
   "name",
   "tags",
-  "alias",
-  "teamID",
   "cpuCount",
   "memoryMB",
   "extensions",
 ]);
 
 const TEMPLATE_UPDATE_FIELDS = new Set([
-  "public",
   "extensions",
 ]);
 const BUILD_REQUEST_FIELDS = new Set([
@@ -52,6 +49,10 @@ const BUILD_REQUEST_FIELDS = new Set([
 ]);
 
 export class SandboxBuildService extends BaseTransport {
+  getFetch(): typeof fetch {
+    return this.getFetchImpl();
+  }
+
   async metrics(): Promise<string> {
     return super.metrics();
   }

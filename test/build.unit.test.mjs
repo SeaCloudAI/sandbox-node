@@ -68,9 +68,7 @@ test("unit: build template endpoints", async (t) => {
       if (url.pathname === "/api/v1/templates" && init.method === "POST") {
         assert.deepEqual(JSON.parse(init.body), {
           name: "demo",
-          alias: "demo-alias",
           tags: ["v1"],
-          teamID: "project-1",
           cpuCount: 2,
           memoryMB: 1024,
         });
@@ -101,13 +99,27 @@ test("unit: build template endpoints", async (t) => {
         assert.equal(url.searchParams.get("nextToken"), "build-1");
         return jsonResponse(200, {
           templateID: "tpl-1",
+          buildID: "build-2",
+          buildStatus: "ready",
+          cpuCount: 2,
+          memoryMB: 1024,
+          diskSizeMB: 5120,
           public: false,
           names: ["user/demo"],
           aliases: ["demo"],
+          createdBy: { id: "user-1", email: "user@example.com" },
           createdAt: "2026-01-01T00:00:00Z",
           updatedAt: "2026-01-01T00:01:00Z",
           lastSpawnedAt: "2026-01-01T00:02:00Z",
           spawnCount: 3,
+          buildCount: 4,
+          envdVersion: "sandbox-builder-v1",
+          visibility: "personal",
+          image: "harbor.example/demo:latest",
+          storageType: "nfs",
+          startCmd: "npm start",
+          readyCmd: "test -f /tmp/ready",
+          cloudsinkURL: "https://cloudsink.internal",
           builds: [{
             buildID: "build-2",
             status: "ready",
@@ -133,9 +145,7 @@ test("unit: build template endpoints", async (t) => {
 
     const created = await service.createTemplate({
       name: "demo",
-      alias: "demo-alias",
       tags: ["v1"],
-      teamID: "project-1",
       cpuCount: 2,
       memoryMB: 1024,
     });
@@ -151,7 +161,9 @@ test("unit: build template endpoints", async (t) => {
       limit: 10,
       nextToken: "build-1",
     });
-    const updated = await service.updateTemplate("tpl-1", { public: false });
+    const updated = await service.updateTemplate("tpl-1", {
+      extensions: { seacloud: { envs: { SDK_TEST: "1" } } },
+    });
     await service.deleteTemplate("tpl-1");
 
     assert.equal(created.templateID, "tpl-1");
@@ -159,6 +171,15 @@ test("unit: build template endpoints", async (t) => {
     assert.equal(aliased.templateID, "tpl-1");
     assert.equal(resolved.templateID, "tpl-1");
     assert.equal(detail.templateID, "tpl-1");
+    assert.equal(detail.buildID, "build-2");
+    assert.equal(detail.buildStatus, "ready");
+    assert.equal(detail.cpuCount, 2);
+    assert.equal(detail.createdBy.email, "user@example.com");
+    assert.equal(detail.visibility, "personal");
+    assert.equal(detail.storageType, "nfs");
+    assert.equal(detail.startCmd, "npm start");
+    assert.equal(detail.readyCmd, "test -f /tmp/ready");
+    assert.equal(detail.cloudsinkURL, "https://cloudsink.internal");
     assert.equal(detail.builds[0].status, "ready");
     assert.equal(detail.builds[0].memoryMB, 1024);
     assert.equal(detail.nextToken, "build-next");
@@ -501,6 +522,71 @@ test("unit: build request encoding and validation", async (t) => {
       }),
       /template field type is not supported by the public SDK/,
     );
+  });
+
+  await t.test("boundary values are accepted for template and build queries", async () => {
+    const calls = [];
+    const buildID = "build-".padEnd(63, "a");
+    const service = createService(async (input, init) => {
+      const url = new URL(String(input));
+      calls.push(String(input));
+      if (url.pathname === "/api/v1/templates") {
+        return jsonResponse(200, []);
+      }
+      if (url.pathname === "/api/v1/templates/resolve/base") {
+        return jsonResponse(200, { templateID: "tpl-base" });
+      }
+      if (url.pathname === "/api/v1/templates/aliases/demo") {
+        return jsonResponse(200, { templateID: "tpl-1" });
+      }
+      if (url.pathname === "/api/v1/templates/tpl-1") {
+        return jsonResponse(200, { templateID: "tpl-1" });
+      }
+      if (url.pathname.endsWith("/status")) {
+        return jsonResponse(200, { buildID: "b", templateID: "tpl-1", status: "building", logs: [], logEntries: [] });
+      }
+      if (url.pathname.endsWith("/logs")) {
+        return jsonResponse(200, { logs: [] });
+      }
+      if (url.pathname.includes("/files/")) {
+        return jsonResponse(200, { present: true });
+      }
+      if (url.pathname.endsWith(`/builds/${buildID}`)) {
+        return jsonResponse(202, {});
+      }
+      throw new Error(`unexpected request: ${String(input)} ${init.method}`);
+    });
+
+    await service.listTemplates({ limit: 100, offset: 0 });
+    await service.getTemplateByAlias("demo");
+    await service.resolveTemplateRef("base");
+    await service.getTemplate("tpl-1", { limit: 100, nextToken: "" });
+    await service.createBuild("tpl-1", buildID);
+    await service.getBuildStatus("tpl-1", "build-1", { logsOffset: 0, limit: 100 });
+    await service.getBuildLogs("tpl-1", "build-1", { cursor: 0, limit: 100, direction: "backward", source: "temporary" });
+    await service.getBuildFile("tpl-1", "a".repeat(64));
+
+    assert.equal(calls.length, 8);
+  });
+
+  await t.test("empty template and build identifiers are rejected", async () => {
+    const service = createService(async () => jsonResponse(200, {}));
+
+    await assert.rejects(service.getTemplate(" "), ValidationError);
+    await assert.rejects(service.updateTemplate(" ", {}), ValidationError);
+    await assert.rejects(service.deleteTemplate(" "), ValidationError);
+    await assert.rejects(service.getTemplateByAlias(" "), ValidationError);
+    await assert.rejects(service.resolveTemplateRef(" "), ValidationError);
+    await assert.rejects(service.createBuild(" ", "build-1"), ValidationError);
+    await assert.rejects(service.createBuild("tpl-1", " "), ValidationError);
+    await assert.rejects(service.getBuild(" ", "build-1"), ValidationError);
+    await assert.rejects(service.getBuild("tpl-1", " "), ValidationError);
+    await assert.rejects(service.getBuildStatus(" ", "build-1"), ValidationError);
+    await assert.rejects(service.getBuildLogs("tpl-1", " "), ValidationError);
+    await assert.rejects(service.listBuilds(" "), ValidationError);
+    await assert.rejects(service.getBuildFile(" ", "a".repeat(64)), ValidationError);
+    await assert.rejects(service.getBuildFile("tpl-1", " "), ValidationError);
+    await assert.rejects(service.rollbackTemplate(" ", { buildID: "build-1" }), ValidationError);
   });
 
   await t.test("api errors are decoded", async () => {

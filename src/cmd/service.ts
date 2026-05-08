@@ -328,7 +328,7 @@ export class SandboxCommandService {
   async writeBatch(request: WriteFilesRequest, options: CmdRequestOptions = {}): Promise<WriteFilesBatchResponse> {
     return this.#requestJson<WriteFilesBatchResponse>("/files/batch", {
       method: "POST",
-      headers: this.#buildHeaders(options.headers, "application/json"),
+      headers: this.#basicHeaders(options, "application/json"),
       body: JSON.stringify(request),
     }, [200], options);
   }
@@ -336,7 +336,7 @@ export class SandboxCommandService {
   async composeFiles(request: ComposeFilesRequest, options: CmdRequestOptions = {}): Promise<RestEntryInfo> {
     return this.#requestJson<RestEntryInfo>("/files/compose", {
       method: "POST",
-      headers: this.#buildHeaders(options.headers, "application/json"),
+      headers: this.#basicHeaders(options, "application/json"),
       body: JSON.stringify(request),
     }, [200], options);
   }

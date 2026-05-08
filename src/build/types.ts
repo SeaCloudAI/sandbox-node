@@ -45,15 +45,12 @@ export interface TemplateExtensions {
 export interface TemplateCreateRequest {
   name?: string;
   tags?: string[];
-  alias?: string;
-  teamID?: string;
   cpuCount?: number;
   memoryMB?: number;
   extensions?: PublicTemplateExtensions;
 }
 
 export interface TemplateUpdateRequest {
-  public?: boolean;
   extensions?: PublicTemplateExtensions;
 }
 
@@ -90,6 +87,18 @@ export interface TemplateAliasResponse {
 export interface TemplateUser {
   id: string;
   email?: string;
+}
+
+export interface TemplateToleration {
+  key: string;
+  operator: string;
+  value?: string;
+  effect: string;
+}
+
+export interface TemplateDNSOption {
+  name: string;
+  value?: string;
 }
 
 export interface ListedTemplate {
@@ -136,16 +145,67 @@ export interface BuildResponse {
 }
 
 export interface TemplateResponse {
-  public: boolean;
   templateID: string;
-  names: string[];
+  buildID?: string;
+  buildStatus?: string;
+  cpuCount?: number;
+  memoryMB?: number;
+  diskSizeMB?: number;
+  public: boolean;
   aliases: string[];
+  names: string[];
+  createdBy?: TemplateUser | null;
   createdAt: string;
   updatedAt: string;
   lastSpawnedAt?: string | null;
   spawnCount: number;
+  buildCount?: number;
+  envdVersion?: string;
   builds?: TemplateBuild[];
   nextToken?: string;
+  type?: string;
+  version?: string;
+  name?: string;
+  visibility?: string;
+  baseTemplateID?: string;
+  image?: string;
+  imageSource?: string;
+  projectID?: string;
+  storageType?: string;
+  storageSizeGB?: number;
+  storageClass?: string;
+  emptyDirSizeLimit?: string;
+  emptyDirMedium?: string;
+  objectBucket?: string;
+  objectKeyPrefix?: string;
+  workspaceID?: string;
+  nfsHostPath?: string;
+  cpuLimitRatio?: number;
+  memoryLimitRatio?: number;
+  namespace?: string;
+  location?: string;
+  envdBaseDomain?: string;
+  runtimeClassName?: string;
+  tolerations?: TemplateToleration[];
+  imagePullSecrets?: string[];
+  imagePullPolicy?: string;
+  dnsPolicy?: string;
+  dnsNameservers?: string[];
+  dnsSearches?: string[];
+  dnsOptions?: TemplateDNSOption[];
+  port?: number;
+  labels?: Record<string, string>;
+  ttlSeconds?: number;
+  daemonImage?: string;
+  cloudsinkURL?: string;
+  sandboxRoot?: string;
+  probeTargets?: string;
+  probeIntervalSecs?: number;
+  probeTimeoutSecs?: number;
+  gatewayURL?: string;
+  heartbeatIntervalSecs?: number;
+  startCmd?: string;
+  readyCmd?: string;
   extensions?: TemplateExtensions;
 }
 

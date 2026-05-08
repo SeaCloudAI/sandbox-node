@@ -15,36 +15,33 @@ if (!templateID) {
 }
 
 const keepResources = ["1", "true", "yes"].includes((process.env.SANDBOX_EXAMPLE_KEEP_RESOURCES ?? "").trim().toLowerCase());
-const root = "/tmp";
+const root = "/root/workspace";
 
-const client = new SandboxClient({ baseUrl, apiKey });
+const client = new SandboxClient({
+  baseUrl,
+  apiKey,
+});
 
-const created = await client.createSandbox({
-  templateID,
+const created = await client.create(templateID, {
   timeout: 1800,
   waitReady: true,
 });
 
 try {
-  const runtime = created.runtime;
   const filePath = `${root}/node-cmd-example.txt`;
 
-  await runtime.writeFile({
-    path: filePath,
-    data: new TextEncoder().encode("hello from node example"),
-  });
+  await created.files.write(filePath, "hello from node example");
 
-  const file = await runtime.readFile({ path: filePath });
-  console.log("file content:", await file.text());
+  const file = await created.files.read(filePath);
+  console.log("file content:", file);
 
-  const listing = await runtime.listDir({ path: root });
-  console.log("directory entries:", listing.entries.length);
+  const listing = await created.files.list(root);
+  console.log("directory entries:", listing.length);
 
-  const run = await runtime.run({
-    cmd: "sh",
+  const run = await created.commands.run("sh", {
     args: ["-lc", `cat ${filePath}`],
   });
-  console.log("run result:", run.exit_code, JSON.stringify(run.stdout));
+  console.log("run result:", run.exitCode, JSON.stringify(run.stdout));
 
 } finally {
   if (!keepResources) {

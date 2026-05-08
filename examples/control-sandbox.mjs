@@ -16,22 +16,24 @@ if (!templateID) {
 
 const keepResources = ["1", "true", "yes"].includes((process.env.SANDBOX_EXAMPLE_KEEP_RESOURCES ?? "").trim().toLowerCase());
 
-const client = new SandboxClient({ baseUrl, apiKey });
+const client = new SandboxClient({
+  baseUrl,
+  apiKey,
+});
 
-const created = await client.createSandbox({
-  templateID,
+const created = await client.create(templateID, {
   timeout: 1800,
   waitReady: true,
 });
 
 console.log("created sandbox:", created.sandboxID, created.status, created.envdUrl);
-if (created.envdUrl) {
-  console.log("bound runtime baseUrl:", created.runtime.baseUrl);
+if (created.sandboxDomain) {
+  console.log("sandbox domain:", created.sandboxDomain);
 }
 
 try {
-  const detail = await created.reload();
-  console.log("sandbox detail:", detail.sandboxID, detail.state, detail.status);
+  await created.reload();
+  console.log("sandbox detail:", created.sandboxID, created.state, created.status);
 } finally {
   if (!keepResources) {
     await created.delete();

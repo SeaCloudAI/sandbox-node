@@ -1,4 +1,8 @@
-import { SandboxClient, templateBuild } from "../dist/index.js";
+import {
+  SandboxClient,
+  Template,
+  defaultBuildLogger,
+} from "../dist/index.js";
 
 const baseUrl = mustEnv("SEACLOUD_BASE_URL");
 const apiKey = mustEnv("SEACLOUD_API_KEY");
@@ -15,51 +19,40 @@ await logMetricLine("control", () => client.metrics());
 await logMetricLine("build", () => client.build.metrics());
 
 const templateName = `node-full-workflow-${Date.now()}`;
-const createdTemplate = await client.build.createTemplate({
-  name: templateName,
-});
-
-const templateID = createdTemplate.templateID;
-let buildID = createdTemplate.buildID ?? "";
-console.log("template created:", templateID, buildID);
+let templateID = "";
+let buildID = "";
 
 let createdSandbox;
+let buildLogCount = 0;
 
 try {
-  if (!buildID) {
-    const requestedBuildID = `build-${Date.now().toString(16)}`;
-    await client.build.createBuild(
-      templateID,
-      requestedBuildID,
-      templateBuild()
-        .fromImage(runtimeBaseImage)
-        .run("mkdir -p /workspace && printf 'hello from node full workflow\\n' >/workspace/built-by-template.txt")
-        .toRequest(),
-    );
-    buildID = requestedBuildID;
-  }
-  if (!buildID) {
-    throw new Error("buildID is empty");
-  }
+  const built = await client.buildTemplate(
+    new Template()
+      .fromImage(runtimeBaseImage)
+      .runCmd("mkdir -p /workspace && printf 'hello from node full workflow\\n' >/workspace/built-by-template.txt")
+      .setReadyCmd("test -f /workspace/built-by-template.txt"),
+    templateName,
+    {
+      wait: true,
+      pollIntervalMs: 2_000,
+      onBuildLogs(entry) {
+        buildLogCount += 1;
+        defaultBuildLogger()(entry);
+      },
+    },
+  );
+  buildID = built.buildID;
+  console.log("build ready:", built.templateID, built.buildID, built.status);
+  console.log("build detail:", built.build?.status, built.build?.image);
 
-  const buildStatus = await waitForBuildReady(client, templateID, buildID);
-  console.log("build ready:", templateID, buildID, buildStatus.status);
+  const buildStatus = await client.getTemplateBuildStatus(
+    { templateID: built.templateID, buildID: built.buildID },
+    { limit: 20 },
+  );
+  console.log("build logs:", buildLogCount, latestBuildLog(buildStatus));
 
-  const buildDetail = await client.build.getBuild(templateID, buildID);
-  console.log("build detail:", buildDetail.status, buildDetail.image);
-
-  try {
-    const buildLogs = await client.build.getBuildLogs(templateID, buildID, {
-      limit: 10,
-      direction: "forward",
-      source: "persistent",
-    });
-    console.log("build logs:", buildLogs.logs.length, latestBuildLog(buildLogs, buildStatus));
-  } catch (error) {
-    console.log("build logs warning:", formatError(error));
-  }
-
-  const templateDetail = await client.build.getTemplate(templateID);
+  const templateDetail = await client.getTemplate(built.templateID);
+  templateID = built.templateID;
   console.log(
     "template detail:",
     templateDetail.templateID,
@@ -67,8 +60,7 @@ try {
     templateDetail.extensions?.seacloud?.imageSource,
   );
 
-  createdSandbox = await client.createSandbox({
-    templateID,
+  createdSandbox = await client.create(built.templateID, {
     timeout: 1800,
     waitReady: true,
   });
@@ -85,12 +77,10 @@ try {
   }
 
   const connected = await sandboxDetail.connect({ timeout: 1800 });
-  console.log("sandbox connected:", connected.statusCode, connected.sandbox.sandboxID);
-
-  const runtime = connected.sandbox.runtime;
+  console.log("sandbox connected:", connected.sandboxID, connected.status);
 
   try {
-    const runtimeMetrics = await runtime.metrics();
+    const runtimeMetrics = await connected.getMetrics();
     console.log(
       "runtime metrics:",
       `cpu=${runtimeMetrics.cpu_used_pct}`,
@@ -101,11 +91,10 @@ try {
     console.log("runtime metrics warning:", formatError(error));
   }
 
-  const listing = await runtime.listDir({ path: "/workspace" });
-  console.log("workspace entries:", listing.entries.length);
+  const listing = await connected.files.list("/workspace");
+  console.log("workspace entries:", listing.length);
 
-  const run = await runtime.run({
-    cmd: "sh",
+  const run = await connected.commands.run("sh", {
     args: ["-lc", "cat /workspace/built-by-template.txt && echo workflow-ok"],
   });
   console.log("run result:", run.exit_code, JSON.stringify(run.stdout), JSON.stringify(run.stderr));
@@ -124,7 +113,7 @@ try {
   }
   if (!keepResources) {
     try {
-      await client.build.deleteTemplate(templateID);
+      await client.deleteTemplate(templateID);
       console.log("deleted template:", templateID);
     } catch (error) {
       console.log("delete template warning:", formatError(error));
@@ -162,10 +151,7 @@ async function logMetricLine(name, fn) {
   }
 }
 
-function latestBuildLog(buildLogs, buildStatus) {
-  if (buildLogs.logs.length > 0) {
-    return buildLogs.logs.at(-1).message;
-  }
+function latestBuildLog(buildStatus) {
   if (buildStatus.logEntries?.length > 0) {
     return buildStatus.logEntries.at(-1).message;
   }
@@ -180,25 +166,6 @@ function latestSandboxLog(logs) {
     return "";
   }
   return logs.logs.at(-1).message;
-}
-
-async function waitForBuildReady(client, templateID, buildID) {
-  const deadline = Date.now() + 3 * 60_000;
-  let last;
-
-  while (Date.now() < deadline) {
-    const status = await client.build.getBuildStatus(templateID, buildID, { limit: 20 });
-    last = status;
-    if (status.status === "ready") {
-      return status;
-    }
-    if (status.status === "error") {
-      throw new Error(`build failed: ${JSON.stringify(status)}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-  }
-
-  throw new Error(`build did not complete before deadline: ${JSON.stringify(last)}`);
 }
 
 function formatError(error) {

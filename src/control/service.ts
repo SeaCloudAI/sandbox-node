@@ -22,10 +22,6 @@ import type {
 
 export class SandboxControlService extends BaseTransport {
   async createSandbox(body: NewSandboxRequest): Promise<Sandbox> {
-    if (!body.templateID.trim()) {
-      throw new ValidationError("templateID is required");
-    }
-
     return this.requestJson<Sandbox>(
       "/api/v1/sandboxes",
       {
