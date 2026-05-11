@@ -34,6 +34,7 @@ export interface SeacloudTemplateExtensions {
   projectID?: string;
   ttlSeconds?: number;
   port?: number;
+  runtimeMode?: string;
   startCmd?: string;
   readyCmd?: string;
 }
@@ -204,6 +205,7 @@ export interface TemplateResponse {
   probeTimeoutSecs?: number;
   gatewayURL?: string;
   heartbeatIntervalSecs?: number;
+  runtimeMode?: string;
   startCmd?: string;
   readyCmd?: string;
   extensions?: TemplateExtensions;
@@ -243,6 +245,7 @@ export interface BuildRequest {
   force?: boolean;
   steps?: BuildStep[];
   filesHash?: string;
+  runtimeMode?: string;
   startCmd?: string;
   readyCmd?: string;
 }

@@ -44,6 +44,7 @@ const BUILD_REQUEST_FIELDS = new Set([
   "force",
   "steps",
   "filesHash",
+  "runtimeMode",
   "startCmd",
   "readyCmd",
 ]);
@@ -331,6 +332,9 @@ export class SandboxBuildService extends BaseTransport {
     }
     if (body.filesHash !== undefined && !SHA256_RE.test(body.filesHash)) {
       throw new ValidationError("filesHash must be a 64-character lowercase hex SHA256");
+    }
+    if (body.runtimeMode !== undefined && body.runtimeMode !== "managed" && body.runtimeMode !== "plain") {
+      throw new ValidationError('runtimeMode must be "managed" or "plain"');
     }
     if (body.force !== undefined && typeof body.force !== "boolean") {
       throw new ValidationError("force must be a boolean");
