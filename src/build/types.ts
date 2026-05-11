@@ -11,24 +11,27 @@ export interface DirectBuildResponse {
   imageFullName: string;
 }
 
-export interface PublicSeacloudTemplateExtensions {
-  baseTemplateID?: string;
-  visibility?: string;
-  envs?: Record<string, string>;
-  storageType?: string;
-  storageSizeGB?: number;
+export interface TemplateVolumeMount {
+  name: string;
+  path: string;
 }
 
 export interface PublicTemplateExtensions {
-  seacloud?: PublicSeacloudTemplateExtensions;
-}
-
-export interface SeacloudTemplateExtensions {
   baseTemplateID?: string;
   visibility?: string;
   envs?: Record<string, string>;
   storageType?: string;
   storageSizeGB?: number;
+  volumeMounts?: TemplateVolumeMount[];
+}
+
+export interface TemplateExtensions {
+  baseTemplateID?: string;
+  visibility?: string;
+  envs?: Record<string, string>;
+  storageType?: string;
+  storageSizeGB?: number;
+  volumeMounts?: TemplateVolumeMount[];
   image?: string;
   imageSource?: string;
   projectID?: string;
@@ -37,10 +40,6 @@ export interface SeacloudTemplateExtensions {
   runtimeMode?: string;
   startCmd?: string;
   readyCmd?: string;
-}
-
-export interface TemplateExtensions {
-  seacloud?: SeacloudTemplateExtensions;
 }
 
 export interface TemplateCreateRequest {

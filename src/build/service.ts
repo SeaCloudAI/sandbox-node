@@ -438,26 +438,14 @@ function validateTemplateExtensions(extensions: unknown): void {
     throw new ValidationError("extensions must be an object");
   }
   const payload = extensions as Record<string, unknown>;
+  const allowed = new Set(["baseTemplateID", "visibility", "envs", "storageType", "storageSizeGB", "volumeMounts"]);
   for (const key of Object.keys(payload)) {
-    if (key !== "seacloud") {
-      throw new ValidationError(`template extension ${key} is not supported by the public SDK`);
-    }
-  }
-  const seacloud = payload.seacloud;
-  if (seacloud === undefined) {
-    return;
-  }
-  if (typeof seacloud !== "object" || seacloud === null) {
-    throw new ValidationError("extensions.seacloud must be an object");
-  }
-  const allowed = new Set(["baseTemplateID", "visibility", "envs", "storageType", "storageSizeGB"]);
-  for (const key of Object.keys(seacloud as Record<string, unknown>)) {
     if (!allowed.has(key)) {
       throw new ValidationError(`template extension field ${key} is not supported by the public SDK`);
     }
   }
-  if (String((seacloud as Record<string, unknown>).visibility ?? "").trim() === "official") {
-    throw new ValidationError("extensions.seacloud.visibility=official is not supported by the public SDK");
+  if (String(payload.visibility ?? "").trim() === "official") {
+    throw new ValidationError("extensions.visibility=official is not supported by the public SDK");
   }
 }
 

@@ -20,7 +20,6 @@ export type {
   GetTemplateParams,
   ListTemplatesParams,
   ListedTemplate,
-  PublicSeacloudTemplateExtensions,
   PublicTemplateExtensions,
   RegistryConfig,
   RollbackRequest,

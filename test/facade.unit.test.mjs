@@ -5,11 +5,13 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  CodeContext,
+  CodeExecution,
   LogEntry,
-  SandboxClient,
   Template,
   waitForPort,
 } from "../dist/index.js";
+import { GatewayClient } from "../dist/gateway-client.js";
 import { APIError, ValidationError } from "../dist/core/index.js";
 
 function jsonResponse(status, body) {
@@ -19,8 +21,8 @@ function jsonResponse(status, body) {
   });
 }
 
-function createClient(fetch) {
-  return new SandboxClient({
+function createGatewayClient(fetch) {
+  return new GatewayClient({
     baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
     apiKey: "unit-auth-value",
     fetch,
@@ -29,7 +31,7 @@ function createClient(fetch) {
 
 test("unit: bound sandbox creates a sandbox and exposes runtime modules", async () => {
   const calls = [];
-  const client = createClient(async (input, init) => {
+  const client = createGatewayClient(async (input, init) => {
       calls.push({ url: String(input), method: init.method, body: init.body });
       const url = new URL(String(input));
       if (url.pathname === "/api/v1/sandboxes") {
@@ -86,14 +88,34 @@ test("unit: bound sandbox creates a sandbox and exposes runtime modules", async 
   assert.deepEqual(writeInfo, {
     path: "/tmp/hello.txt",
     bytesWritten: 18,
-    bytes_written: 18,
   });
   assert.equal(content, "hello from sandbox");
   assert.equal(calls.length, 5);
 });
 
+test("unit: high-level create defaults to base template", async () => {
+  const client = createGatewayClient(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/sandboxes") {
+        assert.deepEqual(JSON.parse(init.body), { templateID: "base", waitReady: true });
+        return jsonResponse(201, {
+          sandboxID: "sb-default",
+          templateID: "base",
+          envdUrl: "https://runtime.cloud.seaart.ai/sb-default",
+          envdAccessToken: "unit-runtime-auth",
+          status: "running",
+          state: "running",
+        });
+      }
+      throw new Error(`unexpected request: ${String(input)} ${init.method}`);
+    });
+
+  const sandbox = await client.create({ waitReady: true });
+  assert.equal(sandbox.templateId, "base");
+});
+
 test("unit: bound sandbox exposes git helpers", async () => {
-  const client = createClient(async (input, init) => {
+  const client = createGatewayClient(async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname === "/api/v1/sandboxes") {
         return jsonResponse(201, {
@@ -133,7 +155,7 @@ test("unit: bound sandbox exposes git helpers", async () => {
 test("unit: bound sandbox exposes filesystem, pty, proxy, and extra git helpers", async () => {
   const runCalls = [];
   const signalCalls = [];
-  const client = createClient(async (input, init = {}) => {
+  const client = createGatewayClient(async (input, init = {}) => {
       const url = new URL(String(input));
       if (url.pathname === "/api/v1/sandboxes") {
         return jsonResponse(201, {
@@ -290,7 +312,7 @@ test("unit: bound sandbox exposes filesystem, pty, proxy, and extra git helpers"
 });
 
 test("unit: bound sandbox can list sandboxes before runtime is ready", async () => {
-  const client = createClient(async (input) => {
+  const client = createGatewayClient(async (input) => {
       assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes");
       return jsonResponse(200, [{
         sandboxID: "sb-2",
@@ -302,13 +324,13 @@ test("unit: bound sandbox can list sandboxes before runtime is ready", async () 
   const sandboxes = await client.list();
 
   assert.equal(sandboxes.length, 1);
-  assert.equal(sandboxes[0].sandboxId, "sb-2");
-  assert.equal(sandboxes[0].isRunning(), false);
+  assert.equal(sandboxes[0].sandboxID, "sb-2");
+  assert.equal(sandboxes[0].state, "paused");
 });
 
 test("unit: bound sandbox exposes getInfo and resume helpers", async () => {
   let connectRequested = false;
-  const client = createClient(async (input, init) => {
+  const client = createGatewayClient(async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname === "/api/v1/sandboxes") {
         return jsonResponse(201, {
@@ -366,6 +388,220 @@ test("unit: bound sandbox exposes getInfo and resume helpers", async () => {
   assert.equal(sandbox.isRunning(), true);
 });
 
+test("unit: bound sandbox runCode uses default python context and preserves execution state", async () => {
+  const startCalls = [];
+  const sendInputs = [];
+  const stdout = [];
+  const stderr = [];
+  const results = [];
+  const errors = [];
+
+  const payload1 = "__SEACLOUD_CODE_CONTEXT__" + JSON.stringify({
+    results: [{ text: "1", json: 1 }],
+    logs: { stdout: ["hello\n"], stderr: [] },
+    executionCount: 1,
+  }) + "\n";
+  const payload2 = "__SEACLOUD_CODE_CONTEXT__" + JSON.stringify({
+    results: [{ text: "2", json: 2 }],
+    logs: { stdout: [], stderr: ["warn\n"] },
+    executionCount: 2,
+  }) + "\n";
+
+  const client = createGatewayClient(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/sandboxes") {
+        return jsonResponse(201, {
+          sandboxID: "sb-code",
+          templateID: "base",
+          envdUrl: "https://runtime.cloud.seaart.ai/sb-code",
+          envdAccessToken: "unit-runtime-auth",
+          status: "running",
+          state: "running",
+        });
+      }
+      if (url.pathname === "/sb-code/file" && init.method === "POST") {
+        return new Response(null, { status: 204 });
+      }
+      if (url.pathname === "/sb-code/process.Process/Start") {
+        startCalls.push(JSON.parse(init.body));
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(connectFrame({ event: { start: { pid: 55 } } }));
+            controller.enqueue(connectFrame({ event: { data: {
+              stdout: Buffer.from(payload1).toString("base64"),
+            } } }));
+            controller.enqueue(connectFrame({ event: { data: {
+              stdout: Buffer.from(payload2).toString("base64"),
+            } } }));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { "content-type": "application/connect+json" },
+        });
+      }
+      if (url.pathname === "/sb-code/process.Process/SendInput") {
+        sendInputs.push(JSON.parse(init.body));
+        return jsonResponse(200, {});
+      }
+      if (url.pathname === "/api/v1/sandboxes/sb-code" && init.method === "DELETE") {
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`unexpected request: ${String(input)} ${init.method}`);
+    });
+  const sandbox = await client.create("base");
+
+  const execution1 = await sandbox.runCode("x = 1\nprint('hello')\nx", {
+    cwd: "/workspace",
+    timeout: 30,
+    onStdout: (chunk) => stdout.push(chunk),
+    onStderr: (chunk) => stderr.push(chunk),
+    onResult: (result) => results.push(result),
+    onError: (error) => errors.push(error),
+  });
+  const execution2 = await sandbox.runCode("x + 1", {
+    onStdout: (chunk) => stdout.push(chunk),
+    onStderr: (chunk) => stderr.push(chunk),
+    onResult: (result) => results.push(result),
+    onError: (error) => errors.push(error),
+  });
+
+  assert.equal(execution1 instanceof CodeExecution, true);
+  assert.equal(execution2.executionCount, 2);
+  assert.equal(startCalls.length, 1);
+  assert.equal(sendInputs.length, 2);
+  assert.deepEqual(execution1.results, [{ text: "1", json: 1 }]);
+  assert.deepEqual(execution2.results, [{ text: "2", json: 2 }]);
+  assert.deepEqual(execution1.logs.stdout, ["hello\n"]);
+  assert.deepEqual(execution2.logs.stderr, ["warn\n"]);
+  assert.equal(stdout[0].line, "hello\n");
+  assert.equal(stderr[0].line, "warn\n");
+  assert.deepEqual(results, [{ text: "1", json: 1 }, { text: "2", json: 2 }]);
+  assert.deepEqual(errors, []);
+  assert.equal(startCalls[0].stdin, true);
+  assert.match(startCalls[0].process.args[1], /\/root\/workspace\/\.seacloud-code-context-default\.py$/);
+  await sandbox.delete();
+});
+
+test("unit: bound sandbox manages explicit python code contexts", async () => {
+  let startCount = 0;
+  const signalCalls = [];
+  const removeCalls = [];
+  const client = createGatewayClient(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/sandboxes") {
+        return jsonResponse(201, {
+          sandboxID: "sb-context",
+          templateID: "base",
+          envdUrl: "https://runtime.cloud.seaart.ai/sb-context",
+          envdAccessToken: "unit-runtime-auth",
+          status: "running",
+          state: "running",
+        });
+      }
+      if (url.pathname === "/sb-context/file" && init.method === "POST") {
+        return new Response(null, { status: 204 });
+      }
+      if (url.pathname === "/sb-context/process.Process/Start") {
+        startCount += 1;
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(connectFrame({ event: { start: { pid: 60 + startCount } } }));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { "content-type": "application/connect+json" },
+        });
+      }
+      if (url.pathname === "/sb-context/process.Process/SendSignal") {
+        signalCalls.push(JSON.parse(init.body));
+        return jsonResponse(200, {});
+      }
+      if (url.pathname === "/sb-context/filesystem.Filesystem/Remove") {
+        removeCalls.push(JSON.parse(init.body).path);
+        return jsonResponse(200, {});
+      }
+      if (url.pathname === "/api/v1/sandboxes/sb-context" && init.method === "DELETE") {
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`unexpected request: ${String(input)} ${init.method}`);
+    });
+  const sandbox = await client.create("base");
+  const context = await sandbox.createCodeContext({ cwd: "/workspace", language: "python", timeout: 10 });
+
+  assert.equal(context instanceof CodeContext, true);
+  assert.equal((await sandbox.listCodeContexts()).length, 1);
+  await sandbox.restartCodeContext(context);
+  await sandbox.removeCodeContext(context.contextId);
+
+  assert.equal(startCount, 2);
+  assert.equal(signalCalls.length, 2);
+  assert.equal(removeCalls.length, 2);
+  await sandbox.delete();
+});
+
+test("unit: non-python code contexts behave as stateless execution profiles", async () => {
+  const removeCalls = [];
+  const client = createGatewayClient(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/sandboxes") {
+        return jsonResponse(201, {
+          sandboxID: "sb-stateless-context",
+          templateID: "base",
+          envdUrl: "https://runtime.cloud.seaart.ai/sb-stateless-context",
+          envdAccessToken: "unit-runtime-auth",
+          status: "running",
+          state: "running",
+        });
+      }
+      if (url.pathname === "/sb-stateless-context/file" && init.method === "POST") {
+        return new Response(null, { status: 204 });
+      }
+      if (url.pathname === "/sb-stateless-context/process.Process/Start") {
+        const request = JSON.parse(init.body);
+        assert.equal(request.process.cmd, "bash");
+        assert.equal(request.process.cwd, "/workspace/app");
+        assert.equal(request.timeout, 12);
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(connectFrame({ event: { start: { pid: 88, cmdId: "cmd-bash" } } }));
+            controller.enqueue(connectFrame({ event: { data: { stdout: Buffer.from("hi\n", "utf8").toString("base64") } } }));
+            controller.enqueue(connectFrame({ event: { end: { exited: true, status: "exit status 0", error: null } } }));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { "content-type": "application/connect+json" },
+        });
+      }
+      if (url.pathname === "/sb-stateless-context/filesystem.Filesystem/Remove") {
+        removeCalls.push(JSON.parse(init.body).path);
+        return jsonResponse(200, {});
+      }
+      if (url.pathname === "/api/v1/sandboxes/sb-stateless-context" && init.method === "DELETE") {
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`unexpected request: ${String(input)} ${init.method}`);
+    });
+
+  const sandbox = await client.create("base");
+  const context = await sandbox.createCodeContext({ cwd: "/workspace/app", language: "bash", timeout: 12 });
+  const execution = await sandbox.runCode("echo hi", { context });
+
+  assert.equal(context.language, "bash");
+  assert.equal((await sandbox.listCodeContexts()).length, 1);
+  assert.equal((await sandbox.restartCodeContext(context)).contextId, context.contextId);
+  assert.equal(execution.text, "hi\n");
+  await sandbox.removeCodeContext(context);
+  assert.deepEqual(await sandbox.listCodeContexts(), []);
+  assert.equal(removeCalls.length, 2);
+  await sandbox.delete();
+});
+
 test("unit: client template workflow builds and polls until ready", async () => {
   const logs = [];
   const template = new Template()
@@ -373,13 +609,13 @@ test("unit: client template workflow builds and polls until ready", async () => 
     .runCmd("npm install")
     .setStartCmd("npm start", waitForPort(3000));
 
-  const client = createClient(async (input, init) => {
+  const client = createGatewayClient(async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname === "/api/v1/templates" && init.method === "POST") {
         assert.deepEqual(JSON.parse(init.body), {
           name: "demo",
           tags: ["v1"],
-          extensions: { seacloud: { baseTemplateID: "tpl-base-1" } },
+          extensions: { baseTemplateID: "tpl-base-1" },
         });
         return jsonResponse(202, {
           templateID: "tpl-1",
@@ -450,8 +686,7 @@ test("unit: client template workflow builds and polls until ready", async () => 
     onBuildLogs: (entry) => logs.push(entry.toString()),
   });
 
-  assert.equal(built.templateID, "tpl-1");
-  assert.equal(built.status, "ready");
+  assert.equal(built.templateId, "tpl-1");
   assert.deepEqual(built.tags, ["v1"]);
   assert.equal(logs.some((line) => line.includes("installed dependencies")), true);
   assert.equal(logs[0] instanceof String, false);
@@ -460,7 +695,7 @@ test("unit: client template workflow builds and polls until ready", async () => 
 
 test("unit: client.buildTemplateInBackground skips polling and returns building status", async () => {
   let statusRequested = false;
-  const client = createClient(async (input, init) => {
+  const client = createGatewayClient(async (input, init) => {
         const url = new URL(String(input));
         if (url.pathname === "/api/v1/templates" && init.method === "POST") {
           return jsonResponse(202, {
@@ -496,12 +731,176 @@ test("unit: client.buildTemplateInBackground skips polling and returns building 
   );
 
   assert.equal(statusRequested, false);
-  assert.equal(built.templateID, "tpl-bg");
-  assert.equal(built.status, "building");
+  assert.equal(built.templateId, "tpl-bg");
+  assert.equal(built.buildId.startsWith("build-"), true);
+});
+
+test("unit: Template static helpers use env-first gateway flow", async () => {
+  const calls = [];
+  const template = new Template().fromImage("docker.io/library/node:20");
+
+  const built = await Template.build(
+    template,
+    "demo:v1",
+    {
+      apiKey: "unit-auth-value",
+      baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+      pollIntervalMs: 1,
+      fetch: async (input, init) => {
+        const url = new URL(String(input));
+        calls.push({ path: url.pathname, method: init.method, query: url.search });
+        if (url.pathname === "/api/v1/templates" && init.method === "POST") {
+          return jsonResponse(202, {
+            templateID: "tpl-static",
+            buildID: "server-build-id",
+            public: false,
+            names: ["demo"],
+            tags: ["v1"],
+            aliases: [],
+          });
+        }
+        if (url.pathname.startsWith("/api/v1/templates/tpl-static/builds/") && init.method === "POST") {
+          return jsonResponse(202, {});
+        }
+        if (url.pathname.startsWith("/api/v1/templates/tpl-static/builds/") && url.pathname.endsWith("/status")) {
+          return jsonResponse(200, {
+            buildID: "build-1",
+            templateID: "tpl-static",
+            status: "ready",
+            logs: [],
+            logEntries: [],
+          });
+        }
+        if (url.pathname === "/api/v1/templates/tpl-static" && init.method === "GET") {
+          return jsonResponse(200, {
+            templateID: "tpl-static",
+            buildStatus: "ready",
+            public: false,
+            aliases: [],
+            names: ["demo"],
+          });
+        }
+        if (url.pathname.startsWith("/api/v1/templates/tpl-static/builds/") && init.method === "GET") {
+          return jsonResponse(200, {
+            buildID: "build-1",
+            templateID: "tpl-static",
+            status: "ready",
+            image: "demo:v1",
+          });
+        }
+        if (url.pathname === "/api/v1/templates" && init.method === "GET") {
+          return jsonResponse(200, [{
+            templateID: "tpl-static",
+            buildStatus: "ready",
+            public: false,
+            aliases: [],
+            names: ["demo"],
+          }]);
+        }
+        if (url.pathname === "/api/v1/templates/resolve/demo" && init.method === "GET") {
+          return jsonResponse(200, { templateID: "tpl-static", public: false });
+        }
+        if (url.pathname === "/api/v1/templates/tpl-static" && init.method === "DELETE") {
+          return new Response(null, { status: 204 });
+        }
+        throw new Error(`unexpected request: ${String(input)} ${init.method}`);
+      },
+    },
+  );
+
+  const listed = await Template.list({
+    apiKey: "unit-auth-value",
+    baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+      calls.push({ path: url.pathname, method: init.method, query: url.search });
+      return jsonResponse(200, [{
+        templateID: "tpl-static",
+        buildStatus: "ready",
+        public: false,
+        aliases: [],
+        names: ["demo"],
+      }]);
+    },
+  });
+
+  const detail = await Template.get("demo", {
+    apiKey: "unit-auth-value",
+    baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+      calls.push({ path: url.pathname, method: init.method, query: url.search });
+      if (url.pathname === "/api/v1/templates/resolve/demo") {
+        return jsonResponse(200, { templateID: "tpl-static", public: false });
+      }
+      return jsonResponse(200, {
+        templateID: "tpl-static",
+        buildStatus: "ready",
+        public: false,
+        aliases: [],
+        names: ["demo"],
+      });
+    },
+  });
+
+  const exists = await Template.exists("demo", {
+    apiKey: "unit-auth-value",
+    baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+    fetch: async (input) => {
+      const url = new URL(String(input));
+      calls.push({ path: url.pathname, method: "GET", query: url.search });
+      return jsonResponse(200, { templateID: "tpl-static", public: false });
+    },
+  });
+
+  await Template.delete("demo", {
+    apiKey: "unit-auth-value",
+    baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+      calls.push({ path: url.pathname, method: init.method, query: url.search });
+      if (url.pathname === "/api/v1/templates/resolve/demo") {
+        return jsonResponse(200, { templateID: "tpl-static", public: false });
+      }
+      return new Response(null, { status: 204 });
+    },
+  });
+
+  const status = await Template.getBuildStatus(
+    { templateId: "tpl-static", buildId: "build-1" },
+    {
+      apiKey: "unit-auth-value",
+      baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+      logsOffset: 0,
+      limit: 100,
+      level: "info",
+      fetch: async (input, init) => {
+        const url = new URL(String(input));
+        calls.push({ path: url.pathname, method: init.method, query: url.search });
+        return jsonResponse(200, {
+          buildID: "build-1",
+          templateID: "tpl-static",
+          status: "ready",
+          logs: [],
+          logEntries: [],
+        });
+      },
+    },
+  );
+
+  assert.equal(built.templateId, "tpl-static");
+  assert.equal(listed.length, 1);
+  assert.equal(detail.templateID, "tpl-static");
+  assert.equal(exists, true);
+  assert.equal(status.status, "ready");
+  assert.equal(status.templateId, "tpl-static");
+  assert.equal(status.buildId, "build-1");
+  assert.equal(status.templateId, "tpl-static");
+  assert.equal(status.buildId, "build-1");
 });
 
 test("unit: client.buildTemplate forwards high-level build options and dedupes tags", async () => {
-  const client = createClient(async (input, init) => {
+  const client = createGatewayClient(async (input, init) => {
     const url = new URL(String(input));
     if (url.pathname === "/api/v1/templates" && init.method === "POST") {
       assert.deepEqual(JSON.parse(init.body), {
@@ -509,7 +908,7 @@ test("unit: client.buildTemplate forwards high-level build options and dedupes t
         tags: ["v1", "latest"],
         cpuCount: 2,
         memoryMB: 1024,
-        extensions: { seacloud: { baseTemplateID: "tpl-base-1" } },
+        extensions: { baseTemplateID: "tpl-base-1" },
       });
       return jsonResponse(202, {
         templateID: "tpl-options",
@@ -567,14 +966,14 @@ test("unit: client.buildTemplate forwards high-level build options and dedupes t
     },
   );
 
-  assert.equal(built.templateID, "tpl-options");
+  assert.equal(built.templateId, "tpl-options");
   assert.deepEqual(built.tags, ["v1", "latest"]);
-  assert.equal(built.status, "ready");
+  assert.equal(typeof built.buildId, "string");
 });
 
 test("unit: client template management helpers match E2B-style APIs", async () => {
   const calls = [];
-  const client = createClient(async (input, init) => {
+  const client = createGatewayClient(async (input, init) => {
         const url = new URL(String(input));
         calls.push({ path: url.pathname, method: init.method, body: init.body });
         if (url.pathname === "/api/v1/templates/resolve/demo" && init.method === "GET") {
@@ -597,14 +996,14 @@ test("unit: client template management helpers match E2B-style APIs", async () =
 
 test("unit: client template helpers handle existence and build-status option forwarding", async () => {
   const buildStatusCalls = [];
-  const missingClient = createClient(async (input, init) => {
+  const missingClient = createGatewayClient(async (input, init) => {
     const url = new URL(String(input));
     if (url.pathname === "/api/v1/templates/resolve/missing" && init.method === "GET") {
       return jsonResponse(404, { error: { message: "not found" } });
     }
     throw new Error(`unexpected request: ${String(input)} ${init.method}`);
   });
-  const errorClient = createClient(async (input, init) => {
+  const errorClient = createGatewayClient(async (input, init) => {
     const url = new URL(String(input));
     if (url.pathname === "/api/v1/templates/resolve/broken" && init.method === "GET") {
       return jsonResponse(500, { error: { message: "boom" } });
@@ -627,23 +1026,22 @@ test("unit: client template helpers handle existence and build-status option for
 
   assert.equal(await missingClient.templateExists("missing"), false);
   await assert.rejects(errorClient.templateExists("broken"), APIError);
-  await assert.rejects(
-    errorClient.getTemplateBuildStatus({ templateID: " ", buildID: "build-2" }),
-    ValidationError,
-  );
+  await assert.rejects(errorClient.getTemplateBuildStatus({ templateId: " ", buildId: "build-2" }), ValidationError);
 
   const status = await errorClient.getTemplateBuildStatus(
-    { templateID: "tpl-direct", buildID: "build-2" },
+    { templateId: "tpl-direct", buildId: "build-2" },
     { logsOffset: 0, limit: 100, level: "info" },
   );
 
   assert.equal(status.status, "ready");
+  assert.equal(status.templateId, "tpl-direct");
+  assert.equal(status.buildId, "build-2");
   assert.equal(buildStatusCalls.length, 1);
 });
 
 test("unit: client list/get/delete template helpers forward facade options", async () => {
   const calls = [];
-  const client = createClient(async (input, init) => {
+  const client = createGatewayClient(async (input, init) => {
     const url = new URL(String(input));
     calls.push({ path: url.pathname, search: url.search, method: init.method });
     if (url.pathname === "/api/v1/templates" && init.method === "GET") {
@@ -711,18 +1109,21 @@ test("unit: template builder includes E2B-style helper steps", () => {
 test("unit: template builder supports skipCache, copyItems, remove, and rename", () => {
   const request = new Template()
     .skipCache()
-    .copyItems([{ src: "package.json", dest: "/app/", filesHash: "a".repeat(64) }])
+    .copyItems([{ src: "package.json", dest: "/app/", filesHash: "a".repeat(64), user: "app" }])
     .remove("/tmp/cache", { recursive: true, force: true, user: "root" })
     .rename("/tmp/old.txt", "/tmp/new.txt", { user: "root" })
     .request();
 
-  assert.equal(request.steps.length, 3);
+  assert.equal(request.steps.length, 4);
   assert.equal(request.steps[0].type, "COPY");
   assert.equal(request.steps[0].force, true);
-  assert.match(request.steps[1].args[0], /rm/);
+  assert.match(request.steps[1].args[0], /chown/);
+  assert.match(request.steps[1].args[0], /app/);
   assert.equal(request.steps[1].force, true);
-  assert.match(request.steps[2].args[0], /mv/);
+  assert.match(request.steps[2].args[0], /rm/);
   assert.equal(request.steps[2].force, true);
+  assert.match(request.steps[3].args[0], /mv/);
+  assert.equal(request.steps[3].force, true);
 });
 
 test("unit: template builder supports runCmd user and COPY tar options", async () => {
@@ -847,7 +1248,7 @@ test("unit: client.buildTemplate auto-uploads local COPY sources", async () => {
 
   const uploads = [];
   let copiedStep;
-  const client = createClient(async (input, init) => {
+  const client = createGatewayClient(async (input, init) => {
         if (String(input).startsWith("https://upload.example/")) {
           uploads.push({
             url: String(input),
@@ -866,7 +1267,7 @@ test("unit: client.buildTemplate auto-uploads local COPY sources", async () => {
         }
         if (url.pathname.startsWith("/api/v1/templates/tpl-copy/builds/") && init.method === "POST") {
           const body = JSON.parse(init.body);
-          copiedStep = body.steps[0];
+          copiedStep = body.steps;
           assert.match(body.steps[0].filesHash, /^[a-f0-9]{64}$/);
           return jsonResponse(202, {});
         }
@@ -884,7 +1285,7 @@ test("unit: client.buildTemplate auto-uploads local COPY sources", async () => {
   await client.buildTemplate(
     new Template()
       .fromImage("docker.io/library/alpine:3.20")
-      .copy(source, "/app/"),
+      .copy(source, "/app/", { user: "app" }),
     "demo:auto-copy",
     { pollIntervalMs: 1 },
   );
@@ -893,12 +1294,15 @@ test("unit: client.buildTemplate auto-uploads local COPY sources", async () => {
   assert.equal(uploads[0].method, "PUT");
   assert.equal(uploads[0].body[0], 0x1f);
   assert.equal(uploads[0].body[1], 0x8b);
-  assert.equal(copiedStep.args[1], "/app/");
-  assert.equal(copiedStep.args[0], "hello.txt");
+  assert.equal(copiedStep[0].args[1], "/app/");
+  assert.equal(copiedStep[0].args[0], "hello.txt");
+  assert.equal(copiedStep[1].type, "RUN");
+  assert.match(copiedStep[1].args[0], /chown/);
+  assert.match(copiedStep[1].args[0], /app/);
 });
 
 test("unit: filesystem helper supports writeFiles batch helper", async () => {
-  const client = createClient(async (input, init) => {
+  const client = createGatewayClient(async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname === "/api/v1/sandboxes") {
         return jsonResponse(201, {
@@ -928,14 +1332,14 @@ test("unit: filesystem helper supports writeFiles batch helper", async () => {
   ]);
 
   assert.deepEqual(written, [
-    { path: "/tmp/a.txt", bytesWritten: 1, bytes_written: 1 },
-    { path: "/tmp/b.txt", bytesWritten: 2, bytes_written: 2 },
+    { path: "/tmp/a.txt", bytesWritten: 1 },
+    { path: "/tmp/b.txt", bytesWritten: 2 },
   ]);
 });
 
 test("unit: command and pty handles encode stdin and decode streamed output", async () => {
   const inputCalls = [];
-  const client = createClient(async (input, init) => {
+  const client = createGatewayClient(async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname === "/api/v1/sandboxes") {
         return jsonResponse(201, {
@@ -997,6 +1401,53 @@ test("unit: command and pty handles encode stdin and decode streamed output", as
     { process: { pid: 41 }, input: { stdin: Buffer.from("ping\n").toString("base64") } },
     { process: { pid: 42 }, input: { pty: Buffer.from("ls\n").toString("base64") } },
   ]);
+});
+
+test("unit: commands and pty accept timeout and user options", async () => {
+  const runCalls = [];
+  const startCalls = [];
+  const client = createGatewayClient(async (input, init = {}) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/sandboxes") {
+        return jsonResponse(201, {
+          sandboxID: "sb-user",
+          templateID: "base",
+          envdUrl: "https://runtime.cloud.seaart.ai/sb-user",
+          envdAccessToken: "unit-runtime-auth",
+          status: "running",
+          state: "running",
+        });
+      }
+      if (url.pathname === "/sb-user/run") {
+        runCalls.push(JSON.parse(init.body));
+        return jsonResponse(200, { stdout: "ok\n", stderr: "", exit_code: 0, duration_ms: 1 });
+      }
+      if (url.pathname === "/sb-user/process.Process/Start") {
+        startCalls.push(JSON.parse(init.body));
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(connectFrame({ event: { start: { pid: 99 } } }));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { "content-type": "application/connect+json" },
+        });
+      }
+      throw new Error(`unexpected request: ${String(input)} ${init.method}`);
+    });
+  const sandbox = await client.create("base");
+
+  await sandbox.commands.run("echo", { args: ["hello"], timeout: 2, user: "app" });
+  await sandbox.pty.create("bash", { timeout: 3, user: "root" });
+
+  assert.equal(runCalls[0].timeout, 2);
+  assert.equal(runCalls[0].cmd, "sh");
+  assert.match(runCalls[0].args[1], /su -s \/bin\/sh 'app'/);
+  assert.equal(startCalls[0].timeout, 3);
+  assert.equal(startCalls[0].process.cmd, "sh");
+  assert.match(startCalls[0].process.args[1], /su -s \/bin\/sh 'root'/);
 });
 
 function connectFrame(payload) {

@@ -1,22 +1,12 @@
 import {
-  SandboxClient,
+  Sandbox,
   Template,
   defaultBuildLogger,
 } from "../dist/index.js";
 
-const baseUrl = mustEnv("SEACLOUD_BASE_URL");
-const apiKey = mustEnv("SEACLOUD_API_KEY");
+mustEnv("E2B_API_KEY");
 const runtimeBaseImage = mustEnv("SANDBOX_EXAMPLE_RUNTIME_BASE_IMAGE");
 const keepResources = envEnabled("SANDBOX_EXAMPLE_KEEP_RESOURCES");
-
-const client = new SandboxClient({
-  baseUrl,
-  apiKey,
-  timeoutMs: 180_000,
-});
-
-await logMetricLine("control", () => client.metrics());
-await logMetricLine("build", () => client.build.metrics());
 
 const templateName = `node-full-workflow-${Date.now()}`;
 let templateID = "";
@@ -26,7 +16,7 @@ let createdSandbox;
 let buildLogCount = 0;
 
 try {
-  const built = await client.buildTemplate(
+  const built = await Template.build(
     new Template()
       .fromImage(runtimeBaseImage)
       .runCmd("mkdir -p /workspace && printf 'hello from node full workflow\\n' >/workspace/built-by-template.txt")
@@ -39,32 +29,33 @@ try {
         buildLogCount += 1;
         defaultBuildLogger()(entry);
       },
+      requestTimeoutMs: 180_000,
     },
   );
-  buildID = built.buildID;
-  console.log("build ready:", built.templateID, built.buildID, built.status);
-  console.log("build detail:", built.build?.status, built.build?.image);
+  buildID = built.buildId;
+  console.log("build started:", built.templateId, built.buildId);
 
-  const buildStatus = await client.getTemplateBuildStatus(
-    { templateID: built.templateID, buildID: built.buildID },
+  const buildStatus = await Template.getBuildStatus(
+    { templateId: built.templateId, buildId: built.buildId },
     { limit: 20 },
   );
+  console.log("build ready:", buildStatus.templateId, buildStatus.buildId, buildStatus.status);
   console.log("build logs:", buildLogCount, latestBuildLog(buildStatus));
 
-  const templateDetail = await client.getTemplate(built.templateID);
-  templateID = built.templateID;
+  const templateDetail = await Template.get(built.templateId);
+  templateID = built.templateId;
   console.log(
     "template detail:",
     templateDetail.templateID,
     templateDetail.builds?.length ?? 0,
-    templateDetail.extensions?.seacloud?.imageSource,
+    templateDetail.extensions?.imageSource,
   );
 
-  createdSandbox = await client.create(built.templateID, {
+  createdSandbox = await Sandbox.create(built.templateId, {
     timeout: 1800,
     waitReady: true,
   });
-  console.log("sandbox created:", createdSandbox.sandboxID, createdSandbox.status);
+  console.log("sandbox created:", createdSandbox.sandboxId, createdSandbox.status);
 
   const sandboxDetail = await createdSandbox.reload();
   console.log("sandbox detail:", sandboxDetail.state, sandboxDetail.status);
@@ -77,7 +68,7 @@ try {
   }
 
   const connected = await sandboxDetail.connect({ timeout: 1800 });
-  console.log("sandbox connected:", connected.sandboxID, connected.status);
+  console.log("sandbox connected:", connected.sandboxId, connected.status);
 
   try {
     const runtimeMetrics = await connected.getMetrics();
@@ -97,23 +88,23 @@ try {
   const run = await connected.commands.run("sh", {
     args: ["-lc", "cat /workspace/built-by-template.txt && echo workflow-ok"],
   });
-  console.log("run result:", run.exit_code, JSON.stringify(run.stdout), JSON.stringify(run.stderr));
+  console.log("run result:", run.exitCode, JSON.stringify(run.stdout), JSON.stringify(run.stderr));
 
   if (keepResources) {
-    console.log("kept resources:", templateID, createdSandbox.sandboxID);
+    console.log("kept resources:", templateID, createdSandbox.sandboxId);
   }
 } finally {
   if (!keepResources && createdSandbox) {
     try {
       await createdSandbox.delete();
-      console.log("deleted sandbox:", createdSandbox.sandboxID);
+      console.log("deleted sandbox:", createdSandbox.sandboxId);
     } catch (error) {
       console.log("delete sandbox warning:", formatError(error));
     }
   }
   if (!keepResources) {
     try {
-      await client.deleteTemplate(templateID);
+      await Template.delete(templateID);
       console.log("deleted template:", templateID);
     } catch (error) {
       console.log("delete template warning:", formatError(error));
@@ -131,24 +122,6 @@ function mustEnv(name) {
 
 function envEnabled(name) {
   return ["1", "true", "yes"].includes((process.env[name] ?? "").trim().toLowerCase());
-}
-
-function firstNonEmptyLine(text) {
-  for (const line of String(text).split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed) {
-      return trimmed;
-    }
-  }
-  return "";
-}
-
-async function logMetricLine(name, fn) {
-  try {
-    console.log(`${name} metrics:`, firstNonEmptyLine(await fn()));
-  } catch (error) {
-    console.log(`${name} metrics warning:`, formatError(error));
-  }
 }
 
 function latestBuildLog(buildStatus) {

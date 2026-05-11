@@ -8,7 +8,6 @@ import { TemplateBuildBuilder } from "./build/builder.js";
 import type {
   BuildLogEntry,
   BuildRequest,
-  BuildResponse,
   BuildStatusResponse,
   GenericRegistryConfig,
   GetTemplateParams,
@@ -16,7 +15,7 @@ import type {
   TemplateCreateRequest,
   TemplateResponse,
 } from "./build/types.js";
-import type { GatewayOptions } from "./config.js";
+import { pickGatewayOptions, resolveGatewayOptions, type GatewayOptions } from "./config.js";
 import { NotFoundError, ValidationError } from "./core/errors.js";
 
 const TERMINAL_BUILD_STATUSES = new Set(["ready", "failed", "error", "cancelled"]);
@@ -31,6 +30,7 @@ export interface TemplateCopyOptions {
   forceUpload?: boolean;
   mode?: number;
   resolveSymlinks?: boolean;
+  user?: string;
 }
 
 export interface TemplateCopyItem extends TemplateCopyOptions {
@@ -112,13 +112,16 @@ export interface TemplateBuildOptions extends GatewayOptions {
 }
 
 export interface TemplateBuildInfo {
-  templateID: string;
-  buildID: string;
+  templateId: string;
+  buildId: string;
   name: string;
   tags: string[];
-  status: string;
-  template: TemplateResponse;
-  build?: BuildResponse;
+  alias?: string;
+}
+
+export interface TemplateBuildStatusInfo extends Omit<BuildStatusResponse, "buildID" | "templateID"> {
+  buildId: string;
+  templateId: string;
 }
 
 export interface TemplateGetBuildStatusOptions extends GatewayOptions {
@@ -176,6 +179,67 @@ export class Template {
   readonly #builder = new TemplateBuildBuilder();
   readonly #autoCopies = new Map<string, { src: string; forceUpload: boolean; mode?: number; resolveSymlinks?: boolean }>();
   #skipCache = false;
+
+  static async build(
+    template: Template,
+    nameOrOptions: string | (TemplateBuildOptions & { name: string }),
+    maybeOptions: TemplateBuildOptions = {},
+  ): Promise<TemplateBuildInfo> {
+    const { gateway, name, options } = normalizeStaticTemplateBuildArgs(nameOrOptions, maybeOptions);
+    return buildTemplateWithService(
+      new SandboxBuildService(resolveGatewayOptions(gateway)),
+      template,
+      name,
+      options,
+    );
+  }
+
+  static async buildInBackground(
+    template: Template,
+    nameOrOptions: string | (TemplateBuildOptions & { name: string }),
+    maybeOptions: TemplateBuildOptions = {},
+  ): Promise<TemplateBuildInfo> {
+    const { gateway, name, options } = normalizeStaticTemplateBuildArgs(nameOrOptions, maybeOptions);
+    return buildTemplateWithService(
+      new SandboxBuildService(resolveGatewayOptions(gateway)),
+      template,
+      name,
+      { ...options, wait: false },
+    );
+  }
+
+  static async list(options: GatewayOptions & ListTemplatesParams = {}): Promise<TemplateResponse[]> {
+    const gateway = pickGatewayOptions(options);
+    const params = stripGatewayOptions(options);
+    return listTemplatesWithService(new SandboxBuildService(resolveGatewayOptions(gateway)), params);
+  }
+
+  static async get(ref: string, options: GatewayOptions & GetTemplateParams = {}): Promise<TemplateResponse> {
+    const gateway = pickGatewayOptions(options);
+    const params = stripGatewayOptions(options);
+    return getTemplateWithService(new SandboxBuildService(resolveGatewayOptions(gateway)), ref, params);
+  }
+
+  static async delete(ref: string, options: GatewayOptions = {}): Promise<void> {
+    await deleteTemplateWithService(new SandboxBuildService(resolveGatewayOptions(options)), ref);
+  }
+
+  static async exists(ref: string, options: GatewayOptions = {}): Promise<boolean> {
+    return templateExistsWithService(new SandboxBuildService(resolveGatewayOptions(options)), ref);
+  }
+
+  static async getBuildStatus(
+    data: { buildId?: string; templateId?: string },
+    options: TemplateGetBuildStatusOptions = {},
+  ): Promise<TemplateBuildStatusInfo> {
+    const gateway = pickGatewayOptions(options);
+    const params = stripGatewayOptions(options);
+    return getTemplateBuildStatusWithService(
+      new SandboxBuildService(resolveGatewayOptions(gateway)),
+      data,
+      params,
+    );
+  }
 
   fromImage(image: string, credentials?: ImageCredentials): this {
     this.#builder.fromImage(image);
@@ -309,6 +373,9 @@ export class Template {
     for (const source of sources) {
       const filesHash = options.filesHash ?? this.#registerAutoCopy(source, options);
       this.#builder.copy(source, dest, filesHash, { force: this.#stepForce() });
+      if (options.user?.trim()) {
+        this.#builder.run(buildCopyOwnershipCommand(dest, options.user), { force: this.#stepForce() });
+      }
     }
     return this;
   }
@@ -415,7 +482,7 @@ export class Template {
     const request = this.#builder.toRequest();
     for (const step of request.steps ?? []) {
       if (step.type === "COPY" && step.filesHash?.startsWith(AUTO_COPY_PREFIX)) {
-        throw new ValidationError("copy steps without filesHash require client.buildTemplate()");
+        throw new ValidationError("copy steps without filesHash require Template.build()");
       }
     }
     return request;
@@ -435,7 +502,7 @@ export class Template {
       cpuCount: options.cpuCount,
       memoryMB: options.memoryMB,
       extensions: options.baseTemplateID?.trim()
-        ? { seacloud: { baseTemplateID: options.baseTemplateID.trim() } }
+        ? { baseTemplateID: options.baseTemplateID.trim() }
         : undefined,
     } satisfies TemplateCreateRequest);
 
@@ -454,14 +521,12 @@ export class Template {
 
     const wait = options.wait ?? true;
     if (!wait) {
-      const templateInfo = await service.getTemplate(created.templateID);
       return {
-        templateID: created.templateID,
-        buildID,
+        templateId: created.templateID,
+        buildId: buildID,
         name: templateName,
         tags,
-        status: "building",
-        template: templateInfo,
+        alias: created.aliases?.[0],
       };
     }
 
@@ -480,19 +545,12 @@ export class Template {
       options.onBuildLogs(new LogEntryEnd(new Date(), `Build ${buildID} finished with status ${status.status}`));
     }
 
-    const [templateInfo, buildInfo] = await Promise.all([
-      service.getTemplate(created.templateID),
-      service.getBuild(created.templateID, buildID),
-    ]);
-
     return {
-      templateID: created.templateID,
-      buildID,
+      templateId: created.templateID,
+      buildId: buildID,
       name: templateName,
       tags,
-      status: status.status,
-      template: templateInfo,
-      build: buildInfo,
+      alias: created.aliases?.[0],
     };
   }
 
@@ -615,10 +673,10 @@ export function waitForProcess(processName: string): ReadyCmd {
 }
 
 export function waitForTimeout(timeout: number): ReadyCmd {
-  if (!Number.isFinite(timeout) || timeout < 1_000) {
-    throw new ValidationError("timeout must be at least 1000ms");
+  if (!Number.isFinite(timeout) || timeout <= 0) {
+    throw new ValidationError("timeout must be a positive number");
   }
-  return new ReadyCmd(`sleep ${Math.ceil(timeout / 1_000)}`);
+  return new ReadyCmd(`sleep ${Math.ceil(timeout)}`);
 }
 
 export function waitForURL(url: string, statusCode = 200): ReadyCmd {
@@ -675,22 +733,27 @@ export async function templateExistsWithService(
 
 export async function getTemplateBuildStatusWithService(
   service: SandboxBuildService,
-  data: { buildId?: string; buildID?: string; templateId?: string; templateID?: string },
+  data: { buildId?: string; templateId?: string },
   options: Omit<TemplateGetBuildStatusOptions, keyof GatewayOptions> = {},
-): Promise<BuildStatusResponse> {
-  const templateID = (data.templateId ?? data.templateID ?? "").trim();
-  const buildID = (data.buildId ?? data.buildID ?? "").trim();
+): Promise<TemplateBuildStatusInfo> {
+  const templateID = (data.templateId ?? "").trim();
+  const buildID = (data.buildId ?? "").trim();
   if (!templateID) {
     throw new ValidationError("templateId is required");
   }
   if (!buildID) {
     throw new ValidationError("buildId is required");
   }
-  return service.getBuildStatus(templateID, buildID, {
+  const status = await service.getBuildStatus(templateID, buildID, {
     logsOffset: options.logsOffset,
     limit: options.limit,
     level: options.level,
   });
+  return {
+    ...status,
+    buildId: status.buildID,
+    templateId: status.templateID,
+  };
 }
 
 export async function listTemplatesWithService(
@@ -715,6 +778,40 @@ export async function deleteTemplateWithService(
   ref: string,
 ): Promise<void> {
   await service.deleteTemplate(await resolveTemplateRefID(service, ref));
+}
+
+function normalizeStaticTemplateBuildArgs(
+  nameOrOptions: string | (TemplateBuildOptions & { name: string }),
+  maybeOptions: TemplateBuildOptions,
+): {
+  gateway: GatewayOptions;
+  name: string;
+  options: Omit<TemplateBuildOptions, keyof GatewayOptions>;
+} {
+  if (typeof nameOrOptions === "string") {
+    return {
+      gateway: pickGatewayOptions(maybeOptions),
+      name: nameOrOptions,
+      options: stripGatewayOptions(maybeOptions),
+    };
+  }
+  const source = { ...nameOrOptions };
+  const { name, ...rest } = source;
+  return {
+    gateway: pickGatewayOptions(source),
+    name,
+    options: stripGatewayOptions(rest),
+  };
+}
+
+function stripGatewayOptions<T extends object>(source: T): Omit<T, keyof GatewayOptions> {
+  const rest = { ...(source as Record<string, unknown>) };
+  delete rest.baseUrl;
+  delete rest.apiKey;
+  delete rest.projectId;
+  delete rest.fetch;
+  delete rest.requestTimeoutMs;
+  return rest as Omit<T, keyof GatewayOptions>;
 }
 
 function normalizeLogLevel(level: string): LogEntryLevel {
@@ -793,6 +890,10 @@ function buildMakeDirCommand(path: string, options: MakeDirOptions): string {
   }
   args.push(path);
   return maybeRunAsUser(shellJoin(args), options.user);
+}
+
+function buildCopyOwnershipCommand(path: string, user: string): string {
+  return shellJoin(["chown", "-R", requireNonEmpty(user, "user"), requireNonEmpty(path, "dest")]);
 }
 
 function buildMakeSymlinkCommand(src: string, dest: string, options: MakeSymlinkOptions): string {

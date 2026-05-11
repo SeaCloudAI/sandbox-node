@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { SandboxClient, TemplateBuildBuilder, templateBuild } from "../dist/index.js";
+import { TemplateBuildBuilder, templateBuild } from "../dist/index.js";
+import { GatewayClient } from "../dist/gateway-client.js";
 import { APIError, ValidationError } from "../dist/core/index.js";
 
 function createService(handler) {
-  return new SandboxClient({
+  return new GatewayClient({
     baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
     apiKey: "unit-auth-value",
     projectId: "project-1",
@@ -164,7 +165,7 @@ test("unit: build template endpoints", async (t) => {
       nextToken: "build-1",
     });
     const updated = await service.updateTemplate("tpl-1", {
-      extensions: { seacloud: { envs: { SDK_TEST: "1" } } },
+      extensions: { envs: { SDK_TEST: "1" } },
     });
     await service.deleteTemplate("tpl-1");
 
@@ -421,9 +422,7 @@ test("unit: build request encoding and validation", async (t) => {
     await assert.rejects(
       service.createBuild("tpl-1", "build-test", {
         extensions: {
-          seacloud: {
-            filesHash: "bad",
-          },
+          filesHash: "bad",
         },
       }),
       ValidationError,
@@ -473,10 +472,9 @@ test("unit: build request encoding and validation", async (t) => {
       createAcceptingService.createTemplate({
         name: "demo",
         extensions: {
-          seacloud: {
-            baseTemplateID: "tpl-base-1",
-            visibility: "team",
-          },
+          baseTemplateID: "tpl-base-1",
+          visibility: "team",
+          volumeMounts: [{ name: "cache", path: "/cache" }],
         },
       }),
     );
@@ -484,12 +482,10 @@ test("unit: build request encoding and validation", async (t) => {
       service.createTemplate({
         name: "demo",
         extensions: {
-          seacloud: {
-            visibility: "official",
-          },
+          visibility: "official",
         },
       }),
-      /extensions\.seacloud\.visibility=official is not supported by the public SDK/,
+      /extensions\.visibility=official is not supported by the public SDK/,
     );
     await assert.rejects(
       service.updateTemplate("tpl-1", {
@@ -500,22 +496,19 @@ test("unit: build request encoding and validation", async (t) => {
     await assert.doesNotReject(
       updateAcceptingService.updateTemplate("tpl-1", {
         extensions: {
-          seacloud: {
-            baseTemplateID: "tpl-base-2",
-            storageType: "persistent",
-          },
+          baseTemplateID: "tpl-base-2",
+          storageType: "persistent",
+          volumeMounts: [{ name: "cache", path: "/cache" }],
         },
       }),
     );
     await assert.rejects(
       service.updateTemplate("tpl-1", {
         extensions: {
-          seacloud: {
-            visibility: "official",
-          },
+          visibility: "official",
         },
       }),
-      /extensions\.seacloud\.visibility=official is not supported by the public SDK/,
+      /extensions\.visibility=official is not supported by the public SDK/,
     );
     await assert.rejects(
       service.createTemplate({
