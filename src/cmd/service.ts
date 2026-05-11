@@ -631,7 +631,10 @@ export class SandboxCommandService {
   }
 
   async #request(path: string, init: RequestInit, options?: CmdRequestOptions): Promise<Response> {
-    const requestState = createRequestState(options?.signal, options?.timeoutMs ?? this.timeoutMs);
+    const requestState = createRequestState(
+      options?.signal,
+      options?.requestTimeoutMs ?? this.timeoutMs,
+    );
 
     try {
       return await this.#fetchImpl(this.#buildUrl(path), {

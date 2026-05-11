@@ -8,8 +8,8 @@ npm run build
 
 Shared env:
 
-- `SEACLOUD_BASE_URL`
-- `SEACLOUD_API_KEY`
+- `E2B_DOMAIN`
+- `E2B_API_KEY`
 
 Before running any example, export these variables once in your shell. Use the gateway entrypoint documented in the root `README.md`.
 
@@ -18,18 +18,42 @@ Examples focus on the stable lifecycle, template, command, and PTY flows. Watche
 
 Recommended reading order:
 
-1. `full-workflow.mjs`: create a template -> trigger an E2B-style build -> wait for build -> start sandbox -> connect runtime -> run -> logs/metrics -> cleanup
-2. `template-features.mjs`: `fromDockerfile` -> local `copy(..., { mode, resolveSymlinks })` -> `client.buildTemplateInBackground()` -> `client.getTemplateBuildStatus()` -> existence/detail
-3. `control-sandbox.mjs`: `new SandboxClient(...)` -> `client.create()` -> reload -> cleanup
-4. `cmd-smoke.mjs`: `new SandboxClient(...)` -> `client.create()` -> `files` / `commands` modules
-5. `build-template.mjs`: minimal `new Template()` plus `client.buildTemplate()`
+1. `code-interpreter.mjs`: default Python context -> explicit Python context -> non-Python stateless `context`
+2. `full-workflow.mjs`: pure high-level facade flow -> create a template -> trigger an E2B-style build -> wait for build -> start sandbox -> connect runtime -> run -> logs/metrics -> cleanup
+3. `template-features.mjs`: `fromDockerfile` -> local `copy(..., { mode, resolveSymlinks, user })` -> `Template.buildInBackground()` -> `Template.getBuildStatus()` -> existence/detail
+4. `control-sandbox.mjs`: `Sandbox.create()` -> reload -> cleanup
+5. `cmd-smoke.mjs`: `Sandbox.create()` -> `files` / `commands` modules
+6. `build-template.mjs`: minimal `Template.build()`
+
+## Code Interpreter
+
+This example focuses on the E2B-style code interpreter facade:
+
+- repeated `sandbox.runCode(...)` calls sharing the default Python context
+- explicit stateful Python contexts with `createCodeContext(...)`
+- non-Python contexts acting as reusable execution profiles for `language`, `cwd`, and `timeout`
+- requires a template that actually bundles the code-interpreter environment; `base` is not enough
+
+Required env:
+
+- `SANDBOX_EXAMPLE_TEMPLATE_ID`
+
+Optional env:
+
+- `SANDBOX_EXAMPLE_KEEP_RESOURCES=1`
+
+```bash
+node examples/code-interpreter.mjs
+```
+
+For SeaCloudAI environments, prefer an official `code-interpreter` template or a concrete `tpl-code-interpreter-...` template ID for this example.
 
 ## Full Workflow
 
 This is the primary example when evaluating the SDK end to end:
 
 - create a template
-- trigger a build from a runtime-enabled base image plus E2B-style steps
+- trigger a build from a runtime-enabled image plus E2B-style steps
 - wait for the build to finish
 - inspect build status, build logs, and template detail
 - start a sandbox from that template
@@ -44,7 +68,7 @@ Optional env:
 
 - `SANDBOX_EXAMPLE_KEEP_RESOURCES=1`
 
-The base image must already be runtime-enabled for CMD APIs. The example build starts from that image and adds app-specific content under `/workspace` through a `RUN` step.
+The source image must already be runtime-enabled for CMD APIs. The example build starts from that image and adds app-specific content under `/workspace` through a `RUN` step.
 
 ```bash
 node examples/full-workflow.mjs
@@ -54,8 +78,7 @@ node examples/full-workflow.mjs
 
 This example shows the preferred workflow:
 
-- initialize one `SandboxClient`
-- create a sandbox through `client.create(...)`
+- call `Sandbox.create(...)` directly
 - keep operating through the returned bound sandbox object
 - reload once to show the bound-object workflow
 - cleanup through the same object
@@ -74,8 +97,8 @@ node examples/control-sandbox.mjs
 
 ## Build Plane
 
-Recommended path: the example uses `new Template()` plus `client.buildTemplate()`.
-The flow shows the current client-first template workflow directly: template DSL -> build polling -> template detail -> cleanup.
+Recommended path: the example uses `Template.build()`.
+The flow shows the env-first high-level template workflow directly: template DSL -> build polling -> template detail -> cleanup.
 
 Required env: none
 
@@ -95,10 +118,9 @@ This example covers the supported template helpers that are not obvious from the
 - parse a Dockerfile from disk with `fromDockerfile`
 - inspect the generated request with `Template.toJSON(...)` and `Template.toDockerfile(...)`
 - add extra steps with `skipCache()` and `runCmd(..., { user })`
-- upload a local symlink target with `copy(..., { mode, resolveSymlinks })`
-- initialize one `SandboxClient`
-- trigger `client.buildTemplateInBackground(...)` and poll with `client.getTemplateBuildStatus(...)`
-- verify template existence and inspect template detail
+- upload a local symlink target with `copy(..., { mode, resolveSymlinks, user })`
+- trigger `Template.buildInBackground(...)` and poll with `Template.getBuildStatus(...)`
+- verify template existence with `Template.exists(...)` and inspect template detail with `Template.get(...)`
 
 Required env: none
 
@@ -113,7 +135,7 @@ node examples/template-features.mjs
 
 ## CMD Plane
 
-Recommended path: the example uses `client.create(...)` and then stays on `files` / `commands`.
+Recommended path: the example uses `Sandbox.create(...)` and then stays on `files` / `commands`.
 The selected template must include nano-executor runtime support; otherwise file/process/RPC calls can return `404`.
 The flow stays minimal: write file -> read file -> list directory -> run command.
 The example writes under `/root/workspace`, which is the writable sandbox workspace in the current SeaCloud runtime.
@@ -130,4 +152,4 @@ Optional env:
 node examples/cmd-smoke.mjs
 ```
 
-For SeaCloudAI production smoke tests, `tpl-base-dc11799b9f9f4f9e` is a known-good template to use when creating the runtime-enabled sandbox.
+For SeaCloudAI production smoke tests, `tpl-base-dc11799b9f9f4f9e` is a known-good template for CMD/runtime examples such as this one. Use a `code-interpreter` template instead when you want to run `sandbox.runCode(...)`.

@@ -1,6 +1,6 @@
 import type { ClientOptions } from "./core/transport.js";
 
-const DEFAULT_BASE_URL = "https://sandbox-gateway.cloud.seaart.ai";
+export const DEFAULT_BASE_URL = "https://sandbox-gateway.cloud.seaart.ai";
 const processEnv = (
   globalThis as typeof globalThis & {
     process?: {
@@ -10,19 +10,62 @@ const processEnv = (
 ).process?.env ?? {};
 
 export interface GatewayOptions {
-  baseUrl?: string;
+  domain?: string;
   apiKey?: string;
   projectId?: string;
   fetch?: typeof fetch;
-  timeoutMs?: number;
+  requestTimeoutMs?: number;
+  baseUrl?: string;
+}
+
+export function resolveGatewayBaseUrl(baseUrl?: string, domain?: string): string {
+  const explicit = baseUrl?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  const explicitDomain = domain?.trim();
+  if (explicitDomain) {
+    return normalizeDomain(explicitDomain);
+  }
+  const envDomain = processEnv.E2B_DOMAIN?.trim();
+  if (envDomain) {
+    return normalizeDomain(envDomain);
+  }
+  return DEFAULT_BASE_URL;
+}
+
+export function resolveGatewayApiKey(apiKey?: string): string {
+  return apiKey ?? processEnv.E2B_API_KEY ?? "";
+}
+
+export function resolveGatewayProjectId(projectId?: string): string | undefined {
+  return projectId ?? processEnv.SEACLOUD_PROJECT_ID;
+}
+
+export function pickGatewayOptions(source: GatewayOptions): GatewayOptions {
+  return {
+    domain: source.domain,
+    baseUrl: source.baseUrl,
+    apiKey: source.apiKey,
+    projectId: source.projectId,
+    fetch: source.fetch,
+    requestTimeoutMs: source.requestTimeoutMs,
+  };
 }
 
 export function resolveGatewayOptions(options: GatewayOptions = {}): ClientOptions {
   return {
-    baseUrl: options.baseUrl ?? processEnv.SEACLOUD_BASE_URL ?? DEFAULT_BASE_URL,
-    apiKey: options.apiKey ?? processEnv.SEACLOUD_API_KEY ?? "",
-    projectId: options.projectId ?? processEnv.SEACLOUD_PROJECT_ID,
+    baseUrl: resolveGatewayBaseUrl(options.baseUrl, options.domain),
+    apiKey: resolveGatewayApiKey(options.apiKey),
+    projectId: resolveGatewayProjectId(options.projectId),
     fetch: options.fetch,
-    timeoutMs: options.timeoutMs,
+    timeoutMs: options.requestTimeoutMs,
   };
+}
+
+function normalizeDomain(value: string): string {
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+  return `https://${value}`;
 }

@@ -26,8 +26,8 @@ export interface CmdRequestOptions {
   signature?: string;
   signatureExpiration?: number;
   range?: string;
+  requestTimeoutMs?: number;
   headers?: HeadersInit;
-  timeoutMs?: number;
   signal?: AbortSignal;
 }
 

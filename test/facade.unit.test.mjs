@@ -97,7 +97,7 @@ test("unit: high-level create defaults to base template", async () => {
   const client = createGatewayClient(async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname === "/api/v1/sandboxes") {
-        assert.deepEqual(JSON.parse(init.body), { templateID: "base", waitReady: true });
+        assert.deepEqual(JSON.parse(init.body), { waitReady: true });
         return jsonResponse(201, {
           sandboxID: "sb-default",
           templateID: "base",
@@ -386,6 +386,34 @@ test("unit: bound sandbox exposes getInfo and resume helpers", async () => {
   assert.equal(connectRequested, true);
   assert.equal(sandbox.status, "running");
   assert.equal(sandbox.isRunning(), true);
+});
+
+test("unit: high-level lifecycle helpers allow zero-value TTL semantics", async () => {
+  const calls = [];
+  const client = createGatewayClient(async (input, init) => {
+    const url = new URL(String(input));
+    calls.push({ path: url.pathname, method: init.method, body: init.body ? JSON.parse(init.body) : null });
+    if (url.pathname === "/api/v1/sandboxes/sb-zero/connect") {
+      return jsonResponse(200, {
+        sandboxID: "sb-zero",
+        templateID: "base",
+        status: "running",
+        state: "running",
+      });
+    }
+    if (url.pathname === "/api/v1/sandboxes/sb-zero/timeout") {
+      return new Response(null, { status: 204 });
+    }
+    throw new Error(`unexpected request: ${String(input)} ${init.method}`);
+  });
+
+  const sandbox = await client.connect("sb-zero", { timeout: 0 });
+  await sandbox.setTimeout(0);
+
+  assert.deepEqual(calls, [
+    { path: "/api/v1/sandboxes/sb-zero/connect", method: "POST", body: { timeout: 0 } },
+    { path: "/api/v1/sandboxes/sb-zero/timeout", method: "POST", body: { timeout: 0 } },
+  ]);
 });
 
 test("unit: bound sandbox runCode uses default python context and preserves execution state", async () => {
@@ -738,31 +766,139 @@ test("unit: client.buildTemplateInBackground skips polling and returns building 
 test("unit: Template static helpers use env-first gateway flow", async () => {
   const calls = [];
   const template = new Template().fromImage("docker.io/library/node:20");
+  const previousDomain = process.env.E2B_DOMAIN;
+  const previousAPIKey = process.env.E2B_API_KEY;
+  process.env.E2B_DOMAIN = "https://sandbox-gateway.cloud.seaart.ai";
+  process.env.E2B_API_KEY = "unit-auth-value";
 
-  const built = await Template.build(
-    template,
-    "demo:v1",
-    {
-      apiKey: "unit-auth-value",
-      baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
-      pollIntervalMs: 1,
+  try {
+    const built = await Template.build(
+      template,
+      "demo:v1",
+      {
+        pollIntervalMs: 1,
+        fetch: async (input, init) => {
+          const url = new URL(String(input));
+          calls.push({ path: url.pathname, method: init.method, query: url.search });
+          if (url.pathname === "/api/v1/templates" && init.method === "POST") {
+            return jsonResponse(202, {
+              templateID: "tpl-static",
+              buildID: "server-build-id",
+              public: false,
+              names: ["demo"],
+              tags: ["v1"],
+              aliases: [],
+            });
+          }
+          if (url.pathname.startsWith("/api/v1/templates/tpl-static/builds/") && init.method === "POST") {
+            return jsonResponse(202, {});
+          }
+          if (url.pathname.startsWith("/api/v1/templates/tpl-static/builds/") && url.pathname.endsWith("/status")) {
+            return jsonResponse(200, {
+              buildID: "build-1",
+              templateID: "tpl-static",
+              status: "ready",
+              logs: [],
+              logEntries: [],
+            });
+          }
+          if (url.pathname === "/api/v1/templates/tpl-static" && init.method === "GET") {
+            return jsonResponse(200, {
+              templateID: "tpl-static",
+              buildStatus: "ready",
+              public: false,
+              aliases: [],
+              names: ["demo"],
+            });
+          }
+          if (url.pathname.startsWith("/api/v1/templates/tpl-static/builds/") && init.method === "GET") {
+            return jsonResponse(200, {
+              buildID: "build-1",
+              templateID: "tpl-static",
+              status: "ready",
+              image: "demo:v1",
+            });
+          }
+          if (url.pathname === "/api/v1/templates" && init.method === "GET") {
+            return jsonResponse(200, [{
+              templateID: "tpl-static",
+              buildStatus: "ready",
+              public: false,
+              aliases: [],
+              names: ["demo"],
+            }]);
+          }
+          if (url.pathname === "/api/v1/templates/resolve/demo" && init.method === "GET") {
+            return jsonResponse(200, { templateID: "tpl-static", public: false });
+          }
+          if (url.pathname === "/api/v1/templates/tpl-static" && init.method === "DELETE") {
+            return new Response(null, { status: 204 });
+          }
+          throw new Error(`unexpected request: ${String(input)} ${init.method}`);
+        },
+      },
+    );
+
+    const listed = await Template.list({
       fetch: async (input, init) => {
         const url = new URL(String(input));
         calls.push({ path: url.pathname, method: init.method, query: url.search });
-        if (url.pathname === "/api/v1/templates" && init.method === "POST") {
-          return jsonResponse(202, {
-            templateID: "tpl-static",
-            buildID: "server-build-id",
-            public: false,
-            names: ["demo"],
-            tags: ["v1"],
-            aliases: [],
-          });
+        return jsonResponse(200, [{
+          templateID: "tpl-static",
+          buildStatus: "ready",
+          public: false,
+          aliases: [],
+          names: ["demo"],
+        }]);
+      },
+    });
+
+    const detail = await Template.get("demo", {
+      fetch: async (input, init) => {
+        const url = new URL(String(input));
+        calls.push({ path: url.pathname, method: init.method, query: url.search });
+        if (url.pathname === "/api/v1/templates/resolve/demo") {
+          return jsonResponse(200, { templateID: "tpl-static", public: false });
         }
-        if (url.pathname.startsWith("/api/v1/templates/tpl-static/builds/") && init.method === "POST") {
-          return jsonResponse(202, {});
+        return jsonResponse(200, {
+          templateID: "tpl-static",
+          buildStatus: "ready",
+          public: false,
+          aliases: [],
+          names: ["demo"],
+        });
+      },
+    });
+
+    const exists = await Template.exists("demo", {
+      fetch: async (input) => {
+        const url = new URL(String(input));
+        calls.push({ path: url.pathname, method: "GET", query: url.search });
+        return jsonResponse(200, { templateID: "tpl-static", public: false });
+      },
+    });
+
+    await Template.delete("demo", {
+      fetch: async (input, init) => {
+        const url = new URL(String(input));
+        calls.push({ path: url.pathname, method: init.method, query: url.search });
+        if (url.pathname === "/api/v1/templates/resolve/demo") {
+          return jsonResponse(200, { templateID: "tpl-static", public: false });
         }
-        if (url.pathname.startsWith("/api/v1/templates/tpl-static/builds/") && url.pathname.endsWith("/status")) {
+        return new Response(null, { status: 204 });
+      },
+    });
+
+    const status = await Template.getBuildStatus(
+      { templateId: "tpl-static", buildId: "build-1" },
+      {
+        pollIntervalMs: 1,
+        logsOffset: 0,
+        limit: 100,
+        level: "info",
+        fetch: async (input, init) => {
+          const url = new URL(String(input));
+          calls.push({ path: url.pathname, method: init.method, query: url.search });
           return jsonResponse(200, {
             buildID: "build-1",
             templateID: "tpl-static",
@@ -770,133 +906,31 @@ test("unit: Template static helpers use env-first gateway flow", async () => {
             logs: [],
             logEntries: [],
           });
-        }
-        if (url.pathname === "/api/v1/templates/tpl-static" && init.method === "GET") {
-          return jsonResponse(200, {
-            templateID: "tpl-static",
-            buildStatus: "ready",
-            public: false,
-            aliases: [],
-            names: ["demo"],
-          });
-        }
-        if (url.pathname.startsWith("/api/v1/templates/tpl-static/builds/") && init.method === "GET") {
-          return jsonResponse(200, {
-            buildID: "build-1",
-            templateID: "tpl-static",
-            status: "ready",
-            image: "demo:v1",
-          });
-        }
-        if (url.pathname === "/api/v1/templates" && init.method === "GET") {
-          return jsonResponse(200, [{
-            templateID: "tpl-static",
-            buildStatus: "ready",
-            public: false,
-            aliases: [],
-            names: ["demo"],
-          }]);
-        }
-        if (url.pathname === "/api/v1/templates/resolve/demo" && init.method === "GET") {
-          return jsonResponse(200, { templateID: "tpl-static", public: false });
-        }
-        if (url.pathname === "/api/v1/templates/tpl-static" && init.method === "DELETE") {
-          return new Response(null, { status: 204 });
-        }
-        throw new Error(`unexpected request: ${String(input)} ${init.method}`);
+        },
       },
-    },
-  );
+    );
 
-  const listed = await Template.list({
-    apiKey: "unit-auth-value",
-    baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
-    fetch: async (input, init) => {
-      const url = new URL(String(input));
-      calls.push({ path: url.pathname, method: init.method, query: url.search });
-      return jsonResponse(200, [{
-        templateID: "tpl-static",
-        buildStatus: "ready",
-        public: false,
-        aliases: [],
-        names: ["demo"],
-      }]);
-    },
-  });
-
-  const detail = await Template.get("demo", {
-    apiKey: "unit-auth-value",
-    baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
-    fetch: async (input, init) => {
-      const url = new URL(String(input));
-      calls.push({ path: url.pathname, method: init.method, query: url.search });
-      if (url.pathname === "/api/v1/templates/resolve/demo") {
-        return jsonResponse(200, { templateID: "tpl-static", public: false });
-      }
-      return jsonResponse(200, {
-        templateID: "tpl-static",
-        buildStatus: "ready",
-        public: false,
-        aliases: [],
-        names: ["demo"],
-      });
-    },
-  });
-
-  const exists = await Template.exists("demo", {
-    apiKey: "unit-auth-value",
-    baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
-    fetch: async (input) => {
-      const url = new URL(String(input));
-      calls.push({ path: url.pathname, method: "GET", query: url.search });
-      return jsonResponse(200, { templateID: "tpl-static", public: false });
-    },
-  });
-
-  await Template.delete("demo", {
-    apiKey: "unit-auth-value",
-    baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
-    fetch: async (input, init) => {
-      const url = new URL(String(input));
-      calls.push({ path: url.pathname, method: init.method, query: url.search });
-      if (url.pathname === "/api/v1/templates/resolve/demo") {
-        return jsonResponse(200, { templateID: "tpl-static", public: false });
-      }
-      return new Response(null, { status: 204 });
-    },
-  });
-
-  const status = await Template.getBuildStatus(
-    { templateId: "tpl-static", buildId: "build-1" },
-    {
-      apiKey: "unit-auth-value",
-      baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
-      logsOffset: 0,
-      limit: 100,
-      level: "info",
-      fetch: async (input, init) => {
-        const url = new URL(String(input));
-        calls.push({ path: url.pathname, method: init.method, query: url.search });
-        return jsonResponse(200, {
-          buildID: "build-1",
-          templateID: "tpl-static",
-          status: "ready",
-          logs: [],
-          logEntries: [],
-        });
-      },
-    },
-  );
-
-  assert.equal(built.templateId, "tpl-static");
-  assert.equal(listed.length, 1);
-  assert.equal(detail.templateID, "tpl-static");
-  assert.equal(exists, true);
-  assert.equal(status.status, "ready");
-  assert.equal(status.templateId, "tpl-static");
-  assert.equal(status.buildId, "build-1");
-  assert.equal(status.templateId, "tpl-static");
-  assert.equal(status.buildId, "build-1");
+    assert.equal(built.templateId, "tpl-static");
+    assert.equal(listed.length, 1);
+    assert.equal(detail.templateID, "tpl-static");
+    assert.equal(exists, true);
+    assert.equal(status.status, "ready");
+    assert.equal(status.templateId, "tpl-static");
+    assert.equal(status.buildId, "build-1");
+    assert.equal(status.templateId, "tpl-static");
+    assert.equal(status.buildId, "build-1");
+  } finally {
+    if (previousDomain === undefined) {
+      delete process.env.E2B_DOMAIN;
+    } else {
+      process.env.E2B_DOMAIN = previousDomain;
+    }
+    if (previousAPIKey === undefined) {
+      delete process.env.E2B_API_KEY;
+    } else {
+      process.env.E2B_API_KEY = previousAPIKey;
+    }
+  }
 });
 
 test("unit: client.buildTemplate forwards high-level build options and dedupes tags", async () => {

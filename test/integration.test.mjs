@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { SandboxClient } from "../dist/index.js";
+import { GatewayClient } from "../dist/gateway-client.js";
 
 const shouldRun = process.env.SANDBOX_RUN_INTEGRATION === "1";
 
@@ -16,7 +16,7 @@ function integrationConfig() {
   }
 
   return {
-    client: new SandboxClient({ baseUrl, apiKey }),
+    client: new GatewayClient({ baseUrl, apiKey }),
     templateID,
     buildImage,
   };
@@ -57,10 +57,8 @@ test("control plane integration", { skip: !shouldRun }, async (t) => {
   });
 
   await t.test("sandbox lifecycle", { skip: !templateID }, async () => {
-    const workspaceId = `node-sdk-test-${Date.now()}`;
     const created = await client.createSandbox({
       templateID,
-      workspaceId,
       timeout: 1800,
       waitReady: true,
     });
@@ -113,9 +111,7 @@ test("cmd integration", { skip: !shouldRun }, async (t) => {
   const workspaceRoot = process.env.SANDBOX_TEST_SANDBOX_ROOT ?? "/root/workspace";
 
   await t.test("high-level facade smoke", { skip: !templateID }, async () => {
-    const workspaceId = `node-facade-sdk-test-${Date.now()}`;
     const sandbox = await client.create(templateID, {
-      workspaceId,
       timeout: 1800,
       waitReady: true,
     });
@@ -184,10 +180,8 @@ test("cmd integration", { skip: !shouldRun }, async (t) => {
   });
 
   await t.test("nano-executor smoke", { skip: !templateID }, async () => {
-    const workspaceId = `node-cmd-sdk-test-${Date.now()}`;
     const created = await client.createSandbox({
       templateID,
-      workspaceId,
       timeout: 1800,
       waitReady: true,
     });

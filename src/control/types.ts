@@ -7,11 +7,9 @@ export interface VolumeMount {
 
 export interface NewSandboxRequest {
   templateID?: string;
-  workspaceId?: string;
   timeout?: number;
   metadata?: Record<string, string>;
   envVars?: Record<string, string>;
-  volumeMounts?: VolumeMount[];
   waitReady?: boolean;
 }
 

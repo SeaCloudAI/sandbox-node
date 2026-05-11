@@ -7,7 +7,6 @@ import type {
   NewSandboxRequest,
 } from "./control/types.js";
 import type {
-  BuildStatusResponse,
   GetTemplateParams,
   ListTemplatesParams,
   TemplateResponse,
@@ -18,7 +17,6 @@ import { SandboxCommandService } from "./cmd/service.js";
 import type { CmdOptions } from "./cmd/types.js";
 import type { ClientOptions } from "./core/transport.js";
 import { ConfigurationError } from "./core/errors.js";
-import type { GatewayOptions } from "./config.js";
 import { SandboxRuntime } from "./runtime.js";
 import {
   Sandbox as SandboxFacade,
@@ -44,19 +42,20 @@ import {
   templateExistsWithService,
   type Template,
   type TemplateBuildInfo,
+  type TemplateBuildStatusInfo,
   type TemplateBuildOptions,
   type TemplateGetBuildStatusOptions,
 } from "./template.js";
 
 type SandboxCommandTarget = Pick<ControlSandbox | SandboxDetail, "envdUrl" | "envdAccessToken">;
-type BoundSandboxCreateOptions = Omit<SandboxCreateOptions, keyof GatewayOptions>;
-type BoundSandboxConnectOptions = Omit<SandboxConnectOptions, keyof GatewayOptions>;
-type BoundSandboxListOptions = Omit<SandboxListOptions, keyof GatewayOptions>;
-type BoundTemplateBuildOptions = Omit<TemplateBuildOptions, keyof GatewayOptions>;
-type BoundTemplateGetBuildStatusOptions = Omit<TemplateGetBuildStatusOptions, keyof GatewayOptions>;
-type BoundTemplateGetOptions = Omit<GetTemplateParams, keyof GatewayOptions>;
+type BoundSandboxCreateOptions = Omit<SandboxCreateOptions, "fetch" | "requestTimeoutMs">;
+type BoundSandboxConnectOptions = Omit<SandboxConnectOptions, "fetch" | "requestTimeoutMs">;
+type BoundSandboxListOptions = Omit<SandboxListOptions, "fetch" | "requestTimeoutMs">;
+type BoundTemplateBuildOptions = Omit<TemplateBuildOptions, "fetch" | "requestTimeoutMs">;
+type BoundTemplateGetBuildStatusOptions = Omit<TemplateGetBuildStatusOptions, "fetch" | "requestTimeoutMs">;
+type BoundTemplateGetOptions = GetTemplateParams;
 
-export class SandboxClient extends SandboxControlService {
+export class GatewayClient extends SandboxControlService {
   readonly build: SandboxBuildService;
   readonly #fetchImpl: typeof fetch | undefined;
 
@@ -143,13 +142,12 @@ export class SandboxClient extends SandboxControlService {
     sandboxID: string,
     options: BoundSandboxConnectOptions = {},
   ): Promise<SandboxFacade> {
-    const response = await this.connectSandbox(sandboxID, { timeout: options.timeout ?? 300 });
+    const response = await this.connectSandbox(sandboxID, { timeout: normalizeConnectTimeoutSeconds(options.timeout) });
     return new SandboxFacade(this, response.sandbox);
   }
 
-  async list(options: BoundSandboxListOptions = {}): Promise<SandboxFacade[]> {
-    const sandboxes = await this.listSandboxes(options);
-    return sandboxes.map((sandbox) => new SandboxFacade(this, sandbox));
+  async list(options: BoundSandboxListOptions = {}): Promise<ListedSandboxInstance[]> {
+    return this.listSandboxes(options);
   }
 
   async buildTemplate(
@@ -174,14 +172,10 @@ export class SandboxClient extends SandboxControlService {
     return templateExistsWithService(this.build, ref);
   }
 
-  async templateAliasExists(alias: string): Promise<boolean> {
-    return this.templateExists(alias);
-  }
-
   async getTemplateBuildStatus(
-    data: { buildId?: string; buildID?: string; templateId?: string; templateID?: string },
+    data: { buildId?: string; templateId?: string },
     options: BoundTemplateGetBuildStatusOptions = {},
-  ): Promise<BuildStatusResponse> {
+  ): Promise<TemplateBuildStatusInfo> {
     return getTemplateBuildStatusWithService(this.build, data, options);
   }
 
@@ -201,25 +195,36 @@ export class SandboxClient extends SandboxControlService {
 function normalizeCreateBody(
   templateOrOptions: string | BoundSandboxCreateOptions,
   maybeOptions: BoundSandboxCreateOptions,
-): Omit<SandboxCreateOptions, keyof GatewayOptions | "template"> & { templateID?: string } {
+): {
+  templateID?: string;
+  timeout?: number;
+  metadata?: Record<string, string>;
+  envVars?: Record<string, string>;
+  waitReady?: boolean;
+} {
   if (typeof templateOrOptions === "string") {
-    return filterCreateBody({ ...maybeOptions, templateID: templateOrOptions });
+    return filterCreateBody({ ...maybeOptions, template: templateOrOptions });
   }
   const source = { ...templateOrOptions };
-  const templateID = source.templateID ?? source.template;
-  return filterCreateBody({ ...source, templateID });
+  return filterCreateBody(source);
 }
 
 function filterCreateBody(
-  source: BoundSandboxCreateOptions & { templateID?: string },
-): Omit<SandboxCreateOptions, keyof GatewayOptions | "template"> & { templateID?: string } {
+  source: BoundSandboxCreateOptions,
+): {
+  templateID?: string;
+  timeout?: number;
+  metadata?: Record<string, string>;
+  envVars?: Record<string, string>;
+  waitReady?: boolean;
+} {
+  const templateID = typeof source.template === "string" && source.template.trim() ? source.template.trim() : undefined;
+  const timeout = source.timeout === undefined ? undefined : normalizeLifecycleTimeoutSeconds(source.timeout);
   return {
-    templateID: source.templateID,
-    workspaceId: source.workspaceId,
-    timeout: source.timeout,
+    templateID,
+    timeout,
     metadata: source.metadata,
-    envVars: source.envVars,
-    volumeMounts: source.volumeMounts,
+    envVars: source.envs,
     waitReady: source.waitReady,
   };
 }
@@ -232,4 +237,18 @@ function normalizeTemplateBuildArgs(
     return { name: nameOrOptions, options: maybeOptions };
   }
   return { name: nameOrOptions.name, options: nameOrOptions };
+}
+
+function normalizeConnectTimeoutSeconds(timeout?: number): number {
+  if (timeout === undefined) {
+    return 300;
+  }
+  return normalizeLifecycleTimeoutSeconds(timeout);
+}
+
+function normalizeLifecycleTimeoutSeconds(timeout: number): number {
+  if (!Number.isFinite(timeout) || timeout < 0) {
+    throw new ConfigurationError("timeout must be a non-negative number");
+  }
+  return Math.ceil(timeout);
 }

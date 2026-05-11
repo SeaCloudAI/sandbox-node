@@ -1,4 +1,4 @@
-import { SandboxClient } from "./client.js";
+import { GatewayClient } from "./gateway-client.js";
 import type {
   CmdRequestOptions,
   EntryInfo,
@@ -8,7 +8,9 @@ import type {
   ProxyRequest,
   PtySize,
 } from "./cmd/index.js";
-import type { GatewayOptions } from "./config.js";
+import type { CodeContextCreateOptions, CodeExecution, RunCodeOptions } from "./code-interpreter.js";
+import { CodeContext, PythonCodeContextManager, getResultWithRetry, isPythonLanguage, runCodeWithRuntime } from "./code-interpreter.js";
+import { resolveGatewayOptions } from "./config.js";
 import type {
   ConnectSandboxRequest,
   ListSandboxesParams,
@@ -18,25 +20,36 @@ import type {
   SandboxLogsResponse,
   TimeoutRequest,
 } from "./control/index.js";
+import type { ClientOptions } from "./core/transport.js";
 import { APIError, ConfigurationError, NotFoundError } from "./core/errors.js";
 import type { SandboxRuntime } from "./runtime.js";
+import type { ListedSandboxInstance, SandboxDetailInstance } from "./sandbox.js";
 
-export interface SandboxCreateOptions extends GatewayOptions {
+type HighLevelClientOptions = {
+  fetch?: ClientOptions["fetch"];
+  requestTimeoutMs?: number;
+};
+
+export interface SandboxCreateOptions {
+  fetch?: ClientOptions["fetch"];
+  requestTimeoutMs?: number;
   template?: string;
-  templateID?: string;
-  workspaceId?: string;
   timeout?: number;
   metadata?: Record<string, string>;
-  envVars?: Record<string, string>;
-  volumeMounts?: Array<{ name: string; path: string }>;
+  envs?: Record<string, string>;
   waitReady?: boolean;
 }
 
-export interface SandboxConnectOptions extends GatewayOptions {
+export interface SandboxConnectOptions {
+  fetch?: ClientOptions["fetch"];
+  requestTimeoutMs?: number;
   timeout?: number;
 }
 
-export interface SandboxListOptions extends GatewayOptions, ListSandboxesParams {}
+export interface SandboxListOptions extends ListSandboxesParams {
+  fetch?: ClientOptions["fetch"];
+  requestTimeoutMs?: number;
+}
 
 export interface CommandStartOptions extends CmdRequestOptions {
   args?: string[];
@@ -45,6 +58,7 @@ export interface CommandStartOptions extends CmdRequestOptions {
   timeout?: number;
   stdin?: string;
   background?: boolean;
+  user?: string;
 }
 
 export interface PtyCreateOptions extends CmdRequestOptions {
@@ -53,6 +67,7 @@ export interface PtyCreateOptions extends CmdRequestOptions {
   cwd?: string;
   timeout?: number;
   size?: PtySize;
+  user?: string;
 }
 
 export interface GitCommandOptions {
@@ -76,16 +91,13 @@ export interface WriteFileInput {
 export interface WriteInfo {
   path: string;
   bytesWritten: number;
-  bytes_written: number;
 }
 
 export interface CommandResult {
   stdout: string;
   stderr: string;
   exitCode: number;
-  exit_code: number;
   durationMs: number;
-  duration_ms: number;
   error?: string;
 }
 
@@ -174,7 +186,7 @@ class CommandHandle {
       return { stdout, stderr, pty };
     }
 
-    const result = await this.#runtime.getResult({ cmdId: this.#cmdId });
+    const result = await getResultWithRetry(this.#runtime, this.#cmdId);
     return {
       stdout: result.stdout,
       stderr: result.stderr,
@@ -197,16 +209,17 @@ class Commands {
   ): Promise<CommandResult | CommandHandle> {
     if (options.background) {
       const runtime = this.#runtime();
+      const execution = buildCommandExecution(cmd, options.args, options.user);
       const stream = await runtime.start({
         process: {
-          cmd,
-          args: options.args,
+          cmd: execution.cmd,
+          ...(execution.args?.length ? { args: execution.args } : {}),
           envs: options.envs,
           cwd: options.cwd ?? null,
         },
-        timeout: options.timeout,
+        timeout: normalizeRuntimeTimeoutSeconds(options.timeout),
         stdin: true,
-      }, options);
+      }, normalizeCmdRequestOptions(options));
       const started = await expectStartFrame(stream);
       const handle = new CommandHandle({
         runtime,
@@ -220,21 +233,20 @@ class Commands {
       return handle;
     }
 
+    const execution = buildCommandExecution(cmd, options.args, options.user);
     const result = await this.#runtime().run({
-      cmd,
-      args: options.args,
+      cmd: execution.cmd,
+      ...(execution.args?.length ? { args: execution.args } : {}),
       cwd: options.cwd,
       env: options.envs,
-      timeout: options.timeout,
+      timeout: normalizeRuntimeTimeoutSeconds(options.timeout),
       stdin: options.stdin,
-    }, options);
+    }, normalizeCmdRequestOptions(options));
     return {
       stdout: result.stdout,
       stderr: result.stderr,
       exitCode: result.exit_code,
-      exit_code: result.exit_code,
       durationMs: result.duration_ms,
-      duration_ms: result.duration_ms,
       error: result.error,
     };
   }
@@ -348,7 +360,6 @@ class Filesystem {
       return response.files.map((file) => ({
         path: file.path,
         bytesWritten: file.bytes_written,
-        bytes_written: file.bytes_written,
       }));
     }
 
@@ -359,7 +370,6 @@ class Filesystem {
     return {
       path: pathOrFiles,
       bytesWritten: bytes.byteLength,
-      bytes_written: bytes.byteLength,
     };
   }
 
@@ -395,17 +405,18 @@ class Pty {
 
   async create(command: string, options: PtyCreateOptions = {}): Promise<CommandHandle> {
     const runtime = this.#runtime();
+    const execution = buildCommandExecution(command, options.args, options.user);
     const stream = await runtime.start({
-      process: {
-        cmd: command,
-        args: options.args,
-        envs: options.envs,
-        cwd: options.cwd ?? null,
-      },
-      timeout: options.timeout,
+        process: {
+          cmd: execution.cmd,
+          ...(execution.args?.length ? { args: execution.args } : {}),
+          envs: options.envs,
+          cwd: options.cwd ?? null,
+        },
+      timeout: normalizeRuntimeTimeoutSeconds(options.timeout),
       stdin: true,
       pty: { size: options.size ?? { cols: 80, rows: 24 } },
-    }, options);
+    }, normalizeCmdRequestOptions(options));
     const started = await expectStartFrame(stream);
     return new CommandHandle({
       runtime,
@@ -497,14 +508,76 @@ class Git {
 }
 
 export class Sandbox {
-  readonly #client: SandboxClient;
+  static async create(
+    templateOrOptions: string | SandboxCreateOptions = {},
+    maybeOptions: SandboxCreateOptions = {},
+  ): Promise<Sandbox> {
+    const { clientOptions, body } = normalizeSandboxCreateArgs(templateOrOptions, maybeOptions);
+    const client = new GatewayClient(resolveGatewayOptions(clientOptions));
+    return client.create(body);
+  }
+
+  static async connect(
+    sandboxId: string,
+    options: SandboxConnectOptions = {},
+  ): Promise<Sandbox> {
+    assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
+    const client = new GatewayClient(resolveGatewayOptions(options));
+    return client.connect(sandboxId, { timeout: options.timeout });
+  }
+
+  static async list(options: SandboxListOptions = {}): Promise<ListedSandboxInstance[]> {
+    assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
+    const client = new GatewayClient(resolveGatewayOptions(options));
+    return client.list(options);
+  }
+
+  static async getInfo(
+    sandboxId: string,
+    options: HighLevelClientOptions = {},
+  ): Promise<SandboxDetailInstance> {
+    assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
+    const client = new GatewayClient(resolveGatewayOptions(options));
+    return client.getSandbox(sandboxId);
+  }
+
+  static async kill(
+    sandboxId: string,
+    options: HighLevelClientOptions = {},
+  ): Promise<boolean> {
+    assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
+    const client = new GatewayClient(resolveGatewayOptions(options));
+    try {
+      await client.deleteSandbox(sandboxId);
+      return true;
+    } catch (error) {
+      if (error instanceof NotFoundError) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  static async setTimeout(
+    sandboxId: string,
+    timeout: number,
+    options: HighLevelClientOptions = {},
+  ): Promise<void> {
+    assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
+    const client = new GatewayClient(resolveGatewayOptions(options));
+    await client.setSandboxTimeout(sandboxId, { timeout: normalizeLifecycleTimeoutSeconds(timeout) });
+  }
+
+  readonly #client: GatewayClient;
   #data: SandboxData;
+  #codeContexts?: PythonCodeContextManager;
+  readonly #statelessCodeContexts = new Map<string, CodeContext>();
   readonly commands: Commands;
   readonly files: Filesystem;
   readonly git: Git;
   readonly pty: Pty;
 
-  constructor(client: SandboxClient, data: SandboxData) {
+  constructor(client: GatewayClient, data: SandboxData) {
     this.#client = client;
     this.#data = { ...data };
     this.commands = new Commands(() => this.#runtime());
@@ -514,10 +587,6 @@ export class Sandbox {
   }
 
   get sandboxId(): string {
-    return this.#data.sandboxID;
-  }
-
-  get sandboxID(): string {
     return this.#data.sandboxID;
   }
 
@@ -533,7 +602,7 @@ export class Sandbox {
     return this.#data.trafficAccessToken ?? undefined;
   }
 
-  get templateID(): string | undefined {
+  get templateId(): string | undefined {
     return this.#data.templateID;
   }
 
@@ -565,7 +634,7 @@ export class Sandbox {
 
   async connect(options: SandboxConnectOptions = {}): Promise<Sandbox> {
     const response = await this.#client.connectSandbox(this.sandboxId, {
-      timeout: options.timeout ?? 300,
+      timeout: normalizeConnectTimeoutSeconds(options.timeout),
     } satisfies ConnectSandboxRequest);
     this.#data = { ...response.sandbox };
     return this;
@@ -585,6 +654,57 @@ export class Sandbox {
     return this.#runtime().metrics();
   }
 
+  async runCode(code: string, options: RunCodeOptions = {}): Promise<CodeExecution> {
+    if (options.context) {
+      if (!isPythonLanguage(options.context.language)) {
+        return runCodeWithRuntime(this.#runtime(), code, {
+          ...options,
+          language: options.language ?? options.context.language,
+          cwd: options.cwd ?? options.context.cwd,
+          timeout: options.timeout ?? options.context.timeout,
+        });
+      }
+      return this.#codeContextManager().runInContext(options.context, code, options);
+    }
+    if (isPythonLanguage(options.language)) {
+      return this.#codeContextManager().runDefault(code, options);
+    }
+    return runCodeWithRuntime(this.#runtime(), code, options);
+  }
+
+  async createCodeContext(options: CodeContextCreateOptions = {}): Promise<CodeContext> {
+    if (!isPythonLanguage(options.language)) {
+      const context = new CodeContext(options);
+      this.#statelessCodeContexts.set(context.contextId, context);
+      return context;
+    }
+    return this.#codeContextManager().createContext(options);
+  }
+
+  async listCodeContexts(): Promise<CodeContext[]> {
+    return [
+      ...this.#statelessCodeContexts.values(),
+      ...(this.#codeContexts ? this.#codeContexts.listContexts() : []),
+    ];
+  }
+
+  async restartCodeContext(contextOrId: string | CodeContext): Promise<CodeContext> {
+    const contextId = typeof contextOrId === "string" ? contextOrId : contextOrId.contextId;
+    const stateless = this.#statelessCodeContexts.get(contextId);
+    if (stateless) {
+      return stateless;
+    }
+    return this.#codeContextManager().restartContext(contextOrId);
+  }
+
+  async removeCodeContext(contextOrId: string | CodeContext): Promise<void> {
+    const contextId = typeof contextOrId === "string" ? contextOrId : contextOrId.contextId;
+    if (this.#statelessCodeContexts.delete(contextId)) {
+      return;
+    }
+    await this.#codeContextManager().removeContext(contextOrId);
+  }
+
   getHost(port: number): string {
     if (!Number.isInteger(port) || port <= 0) {
       throw new ConfigurationError("port must be a positive integer");
@@ -600,8 +720,20 @@ export class Sandbox {
     await this.#client.pauseSandbox(this.sandboxId);
   }
 
-  async kill(): Promise<void> {
-    await this.#client.deleteSandbox(this.sandboxId);
+  async kill(): Promise<boolean> {
+    this.#statelessCodeContexts.clear();
+    if (this.#codeContexts) {
+      await this.#codeContexts.closeAll();
+    }
+    try {
+      await this.#client.deleteSandbox(this.sandboxId);
+      return true;
+    } catch (error) {
+      if (error instanceof NotFoundError) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   async delete(): Promise<void> {
@@ -612,11 +744,10 @@ export class Sandbox {
     await this.#client.refreshSandbox(this.sandboxId, body);
   }
 
-  async setTimeout(timeoutOrBody: number | TimeoutRequest): Promise<void> {
-    const body = typeof timeoutOrBody === "number"
-      ? { timeout: timeoutOrBody }
-      : timeoutOrBody;
-    await this.#client.setSandboxTimeout(this.sandboxId, body);
+  async setTimeout(timeout: number): Promise<void> {
+    await this.#client.setSandboxTimeout(this.sandboxId, {
+      timeout: normalizeLifecycleTimeoutSeconds(timeout),
+    } satisfies TimeoutRequest);
   }
 
   isRunning(): boolean {
@@ -632,6 +763,11 @@ export class Sandbox {
       envdUrl: this.#data.envdUrl ?? null,
       envdAccessToken: this.#data.envdAccessToken ?? null,
     });
+  }
+
+  #codeContextManager(): PythonCodeContextManager {
+    this.#codeContexts ??= new PythonCodeContextManager(this.#runtime());
+    return this.#codeContexts;
   }
 }
 
@@ -684,6 +820,24 @@ function buildGitExecution(
   };
 }
 
+function buildCommandExecution(
+  command: string,
+  args?: string[],
+  user?: string,
+): { cmd: string; args?: string[] } {
+  const commandArgs = args ?? [];
+  if (!user) {
+    return commandArgs.length > 0 ? { cmd: command, args: commandArgs } : { cmd: command };
+  }
+  return {
+    cmd: "sh",
+    args: [
+      "-lc",
+      `su -s /bin/sh ${shellQuote(user)} -c ${shellQuote(shellJoin([command, ...commandArgs]))}`,
+    ],
+  };
+}
+
 function joinURLPath(baseUrl: string, path: string): string {
   const base = new URL(baseUrl);
   const basePath = base.pathname.replace(/\/+$/, "");
@@ -692,6 +846,91 @@ function joinURLPath(baseUrl: string, path: string): string {
   base.search = "";
   base.hash = "";
   return base.toString();
+}
+
+function normalizeSandboxCreateArgs(
+  templateOrOptions: string | SandboxCreateOptions,
+  maybeOptions: SandboxCreateOptions,
+): {
+  clientOptions: HighLevelClientOptions;
+  body: { templateID?: string; timeout?: number; metadata?: Record<string, string>; envVars?: Record<string, string>; waitReady?: boolean };
+} {
+  if (typeof templateOrOptions === "string") {
+    const source = { ...maybeOptions, template: templateOrOptions };
+    assertNoHighLevelGatewayConfig(source);
+    return {
+      clientOptions: { fetch: source.fetch, requestTimeoutMs: source.requestTimeoutMs },
+      body: normalizeSandboxCreateBody(source),
+    };
+  }
+  const source = { ...templateOrOptions };
+  assertNoHighLevelGatewayConfig(source);
+  return {
+    clientOptions: { fetch: source.fetch, requestTimeoutMs: source.requestTimeoutMs },
+    body: normalizeSandboxCreateBody(source),
+  };
+}
+
+function normalizeSandboxCreateBody(
+  source: SandboxCreateOptions,
+): { templateID?: string; timeout?: number; metadata?: Record<string, string>; envVars?: Record<string, string>; waitReady?: boolean } {
+  const templateID = typeof source.template === "string" && source.template.trim() ? source.template.trim() : undefined;
+  const timeout = source.timeout === undefined ? undefined : normalizeLifecycleTimeoutSeconds(source.timeout);
+  return {
+    templateID,
+    timeout,
+    metadata: source.metadata,
+    envVars: source.envs,
+    waitReady: source.waitReady,
+  };
+}
+
+function normalizeConnectTimeoutSeconds(timeout?: number): number {
+  if (timeout === undefined) {
+    return 300;
+  }
+  return normalizeLifecycleTimeoutSeconds(timeout);
+}
+
+function normalizeRuntimeTimeoutSeconds(timeout?: number): number | undefined {
+  if (timeout === undefined) {
+    return undefined;
+  }
+  return normalizePositiveTimeoutSeconds(timeout);
+}
+
+function normalizeLifecycleTimeoutSeconds(timeout: number): number {
+  if (!Number.isFinite(timeout) || timeout < 0) {
+    throw new ConfigurationError("timeout must be a non-negative number");
+  }
+  return Math.ceil(timeout);
+}
+
+function normalizePositiveTimeoutSeconds(timeout: number): number {
+  if (!Number.isFinite(timeout) || timeout <= 0) {
+    throw new ConfigurationError("timeout must be a positive number");
+  }
+  return Math.ceil(timeout);
+}
+
+function normalizeCmdRequestOptions(options: CmdRequestOptions): CmdRequestOptions {
+  return {
+    username: options.username,
+    signature: options.signature,
+    signatureExpiration: options.signatureExpiration,
+    range: options.range,
+    headers: options.headers,
+    requestTimeoutMs: options.requestTimeoutMs,
+    signal: options.signal,
+  };
+}
+
+function assertNoHighLevelGatewayConfig(source: Record<string, unknown>): void {
+  for (const key of ["baseUrl", "apiKey", "projectId", "domain"]) {
+    if (source[key] !== undefined) {
+      throw new ConfigurationError(`${key} is not supported on high-level Sandbox helpers; use E2B_DOMAIN/E2B_API_KEY env vars`);
+    }
+  }
 }
 
 function shellJoin(args: string[]): string {

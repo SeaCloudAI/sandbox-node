@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { SandboxClient, Template } from "../dist/index.js";
+import { Template } from "../dist/index.js";
+import { GatewayClient } from "../dist/gateway-client.js";
 import {
   APIError,
   NotFoundError,
@@ -9,16 +10,16 @@ import {
   ValidationError,
 } from "../dist/core/index.js";
 
-function createClient(handler) {
-  return new SandboxClient({
+function createGatewayClient(handler) {
+  return new GatewayClient({
     baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
     apiKey: "unit-auth-value",
     fetch: handler,
   });
 }
 
-function createTenantClient(handler) {
-  return new SandboxClient({
+function createProjectGatewayClient(handler) {
+  return new GatewayClient({
     baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
     apiKey: "unit-auth-value",
     projectId: "project-1",
@@ -27,7 +28,7 @@ function createTenantClient(handler) {
 }
 
 function createCmdService(handler) {
-  return createClient(async () => jsonResponse(200, {})).cmd({
+  return createGatewayClient(async () => jsonResponse(200, {})).cmd({
     baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
     accessToken: "unit-runtime-auth",
     fetch: handler,
@@ -43,13 +44,13 @@ function jsonResponse(status, body) {
 
 test("unit: system endpoints", async (t) => {
   await t.test("metrics returns text", async () => {
-    const client = createClient(async () => new Response("metric 1\n", { status: 200 }));
+    const client = createGatewayClient(async () => new Response("metric 1\n", { status: 200 }));
     const response = await client.metrics();
     assert.equal(response, "metric 1\n");
   });
 
   await t.test("shutdown returns message", async () => {
-    const client = createClient(async () => jsonResponse(200, { message: "shutdown initiated" }));
+    const client = createGatewayClient(async () => jsonResponse(200, { message: "shutdown initiated" }));
     const response = await client.shutdown();
     assert.equal(response.message, "shutdown initiated");
   });
@@ -57,7 +58,7 @@ test("unit: system endpoints", async (t) => {
 
 test("unit: sandbox request encoding", async (t) => {
   await t.test("create sandbox sends headers and body", async () => {
-    const client = createTenantClient(async (input, init) => {
+    const client = createProjectGatewayClient(async (input, init) => {
       assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes");
       assert.equal(init.method, "POST");
       const headers = new Headers(init.headers);
@@ -79,7 +80,7 @@ test("unit: sandbox request encoding", async (t) => {
   });
 
   await t.test("create sandbox allows missing templateID", async () => {
-    const client = createTenantClient(async (input, init) => {
+    const client = createProjectGatewayClient(async (input, init) => {
       assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes");
       assert.deepEqual(JSON.parse(init.body), { waitReady: false });
       return jsonResponse(201, { sandboxID: "sb-2" });
@@ -89,8 +90,80 @@ test("unit: sandbox request encoding", async (t) => {
     assert.equal(response.sandboxID, "sb-2");
   });
 
+  await t.test("client options fall back to E2B_API_KEY", async () => {
+    const previous = process.env.E2B_API_KEY;
+    process.env.E2B_API_KEY = "unit-auth-from-e2b";
+    try {
+      const client = new GatewayClient({
+        baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+        fetch: async (_input, init) => {
+          const headers = new Headers(init.headers);
+          assert.equal(headers.get("Authorization"), "Bearer unit-auth-from-e2b");
+          assert.equal(headers.get("X-API-Key"), "unit-auth-from-e2b");
+          return jsonResponse(200, []);
+        },
+      });
+
+      const response = await client.listSandboxes();
+      assert.equal(Array.isArray(response), true);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.E2B_API_KEY;
+      } else {
+        process.env.E2B_API_KEY = previous;
+      }
+    }
+  });
+
+  await t.test("SeaCloud compatibility env vars are ignored for gateway config", async () => {
+    const previousE2BAPIKey = process.env.E2B_API_KEY;
+    const previousSeaCloudAPIKey = process.env.SEACLOUD_API_KEY;
+    const previousE2BDomain = process.env.E2B_DOMAIN;
+    const previousSeaCloudBaseUrl = process.env.SEACLOUD_BASE_URL;
+    process.env.E2B_API_KEY = "unit-auth-from-e2b";
+    process.env.SEACLOUD_API_KEY = "unit-auth-from-seacloud";
+    process.env.E2B_DOMAIN = "e2b.example.test";
+    process.env.SEACLOUD_BASE_URL = "https://seacloud.example.test";
+    try {
+      const client = new GatewayClient({
+        fetch: async (input, init) => {
+          const headers = new Headers(init.headers);
+          assert.equal(String(input).startsWith("https://e2b.example.test/"), true);
+          assert.equal(headers.get("Authorization"), "Bearer unit-auth-from-e2b");
+          assert.equal(headers.get("X-API-Key"), "unit-auth-from-e2b");
+          return jsonResponse(200, []);
+        },
+      });
+
+      const response = await client.listSandboxes();
+      assert.equal(Array.isArray(response), true);
+      assert.equal(client.baseUrl, "https://e2b.example.test");
+    } finally {
+      if (previousE2BAPIKey === undefined) {
+        delete process.env.E2B_API_KEY;
+      } else {
+        process.env.E2B_API_KEY = previousE2BAPIKey;
+      }
+      if (previousSeaCloudAPIKey === undefined) {
+        delete process.env.SEACLOUD_API_KEY;
+      } else {
+        process.env.SEACLOUD_API_KEY = previousSeaCloudAPIKey;
+      }
+      if (previousE2BDomain === undefined) {
+        delete process.env.E2B_DOMAIN;
+      } else {
+        process.env.E2B_DOMAIN = previousE2BDomain;
+      }
+      if (previousSeaCloudBaseUrl === undefined) {
+        delete process.env.SEACLOUD_BASE_URL;
+      } else {
+        process.env.SEACLOUD_BASE_URL = previousSeaCloudBaseUrl;
+      }
+    }
+  });
+
   await t.test("list sandboxes encodes all query params", async () => {
-    const client = createClient(async (input) => {
+    const client = createGatewayClient(async (input) => {
       const url = new URL(String(input));
       assert.equal(url.pathname, "/api/v1/sandboxes");
       assert.equal(url.searchParams.get("metadata"), "app=prod&team=core");
@@ -112,7 +185,7 @@ test("unit: sandbox request encoding", async (t) => {
 
   await t.test("sandbox lifecycle endpoints use expected paths", async () => {
     const calls = [];
-    const client = createClient(async (input, init) => {
+    const client = createGatewayClient(async (input, init) => {
       calls.push({
         url: String(input),
         method: init.method,
@@ -181,7 +254,7 @@ test("unit: sandbox request encoding", async (t) => {
 
   await t.test("admin control endpoints use expected paths and shapes", async () => {
     const calls = [];
-    const client = createClient(async (input, init) => {
+    const client = createGatewayClient(async (input, init) => {
       calls.push({ url: String(input), method: init.method, body: init.body ? JSON.parse(init.body) : null });
       const url = new URL(String(input));
       if (url.pathname === "/admin/pool/status") {
@@ -235,7 +308,7 @@ test("unit: sandbox request encoding", async (t) => {
   });
 
   await t.test("build namespace reuses gateway configuration", async () => {
-    const client = createTenantClient(async (input, init) => {
+    const client = createProjectGatewayClient(async (input, init) => {
       assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/api/v1/templates");
       assert.equal(init.method, "POST");
       const headers = new Headers(init.headers);
@@ -259,7 +332,7 @@ test("unit: sandbox request encoding", async (t) => {
   });
 
   await t.test("runtimeFromSandbox derives envd configuration", async () => {
-    const client = createClient(async () => jsonResponse(200, {}));
+    const client = createGatewayClient(async () => jsonResponse(200, {}));
     const runtime = client.runtimeFromSandbox({
       envdUrl: "https://sandbox-gateway.cloud.seaart.ai",
       envdAccessToken: "unit-runtime-auth",
@@ -270,7 +343,7 @@ test("unit: sandbox request encoding", async (t) => {
   });
 
   await t.test("runtime system requests include access token", async () => {
-    const client = createClient(async () => jsonResponse(200, {}));
+    const client = createGatewayClient(async () => jsonResponse(200, {}));
     const runtime = client.runtime({
       baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
       accessToken: "unit-runtime-auth",
@@ -286,7 +359,7 @@ test("unit: sandbox request encoding", async (t) => {
 
   await t.test("bound sandbox helpers reuse original client", async () => {
     const calls = [];
-    const client = createClient(async (input, init) => {
+    const client = createGatewayClient(async (input, init) => {
       calls.push({ url: String(input), method: init.method });
       if (String(input).endsWith("/api/v1/sandboxes")) {
         return jsonResponse(201, {
@@ -316,7 +389,7 @@ test("unit: sandbox request encoding", async (t) => {
 
   await t.test("high-level client create reuses stored gateway config", async () => {
     const calls = [];
-    const client = createClient(async (input, init) => {
+    const client = createGatewayClient(async (input, init) => {
       calls.push({ url: String(input), method: init.method, body: init.body ? JSON.parse(init.body) : null });
       if (String(input).endsWith("/api/v1/sandboxes")) {
         return jsonResponse(201, {
@@ -337,16 +410,16 @@ test("unit: sandbox request encoding", async (t) => {
     const sandbox = await client.create("tpl", { waitReady: true });
     const info = await sandbox.getInfo();
 
-    assert.equal(sandbox.sandboxID, "sb-high");
+    assert.equal(sandbox.sandboxId, "sb-high");
     assert.equal(typeof sandbox.getHost(3000), "string");
     assert.equal(info.sandboxID, "sb-high");
     assert.deepEqual(calls[0].body, { templateID: "tpl", waitReady: true });
     assert.equal(calls[1].url, "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes/sb-high");
   });
 
-  await t.test("listed sandboxes are returned as bound handles", async () => {
+  await t.test("listed sandboxes are returned as bound info objects", async () => {
     const calls = [];
-    const client = createClient(async (input, init) => {
+    const client = createGatewayClient(async (input, init) => {
       calls.push(String(input));
       if (String(input).includes("/logs")) {
         return jsonResponse(200, { logs: [] });
@@ -379,7 +452,7 @@ test("unit: sandbox request encoding", async (t) => {
 });
 
 test("unit: validations and errors", async (t) => {
-  const client = createClient(async () => jsonResponse(200, {}));
+  const client = createGatewayClient(async () => jsonResponse(200, {}));
 
   await t.test("logs validation rejects bad params", async () => {
     await assert.rejects(
@@ -394,7 +467,7 @@ test("unit: validations and errors", async (t) => {
 
   await t.test("boundary values are accepted for lifecycle and logs params", async () => {
     const calls = [];
-    const boundaryClient = createClient(async (input, init) => {
+    const boundaryClient = createGatewayClient(async (input, init) => {
       calls.push({ url: String(input), method: init.method, body: init.body ? JSON.parse(init.body) : null });
       if (String(input).includes("/logs")) {
         return jsonResponse(200, { logs: [] });
@@ -459,7 +532,7 @@ test("unit: validations and errors", async (t) => {
   });
 
   await t.test("api errors are decoded", async () => {
-    const errorClient = createClient(async () => new Response(
+    const errorClient = createGatewayClient(async () => new Response(
       JSON.stringify({ code: 404, message: "Not found" }),
       { status: 404, headers: { "content-type": "application/json" } },
     ));
@@ -474,7 +547,7 @@ test("unit: validations and errors", async (t) => {
   });
 
   await t.test("api errors accept string detail", async () => {
-    const errorClient = createClient(async () => jsonResponse(404, { error: "not found" }));
+    const errorClient = createGatewayClient(async () => jsonResponse(404, { error: "not found" }));
 
     await assert.rejects(errorClient.getSandbox("sb"), (error) => {
       assert.ok(error instanceof NotFoundError);
@@ -485,7 +558,7 @@ test("unit: validations and errors", async (t) => {
   });
 
   await t.test("request timeout surfaces a typed error", async () => {
-    const client = new SandboxClient({
+    const client = new GatewayClient({
       baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
       apiKey: "unit-auth-value",
       timeoutMs: 1,
@@ -501,7 +574,7 @@ test("unit: validations and errors", async (t) => {
 test("unit: high-level template helpers on client", async (t) => {
   await t.test("buildTemplate uses stored build service config", async () => {
     const calls = [];
-    const client = createTenantClient(async (input, init) => {
+    const client = createProjectGatewayClient(async (input, init) => {
       calls.push({
         url: String(input),
         method: init.method,
@@ -533,7 +606,7 @@ test("unit: high-level template helpers on client", async (t) => {
     const template = new Template().fromBaseImage().runCmd("echo hello");
     const built = await client.buildTemplate(template, "demo:v1", { cpuCount: 2 });
 
-    assert.equal(built.templateID, "tpl-1");
+    assert.equal(built.templateId, "tpl-1");
     assert.equal(calls[0].url, "https://sandbox-gateway.cloud.seaart.ai/api/v1/templates");
     assert.equal(calls[0].headers.get("X-Project-ID"), "project-1");
     assert.deepEqual(calls[0].body, { name: "demo", tags: ["v1"], cpuCount: 2 });
@@ -828,7 +901,7 @@ test("unit: cmd sdk", async (t) => {
   });
 
   await t.test("baseUrl path prefix is preserved", async () => {
-    const cmd = createClient(async () => jsonResponse(200, {})).cmd({
+    const cmd = createGatewayClient(async () => jsonResponse(200, {})).cmd({
       baseUrl: "https://sandbox-gateway.cloud.seaart.ai/sandbox/sb-1",
       fetch: async (input) => {
         assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/sandbox/sb-1/run");

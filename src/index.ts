@@ -1,7 +1,7 @@
 export type { ClientOptions } from "./core/transport.js";
-export { SandboxClient } from "./client.js";
 export { SandboxRuntime } from "./runtime.js";
 export { TemplateBuildBuilder, templateBuild } from "./build/index.js";
+export { CodeContext, CodeExecution, PythonCodeContextManager, runCodeWithRuntime } from "./code-interpreter.js";
 export { Sandbox } from "./sandbox-facade.js";
 export {
   LogEntry,
@@ -24,6 +24,14 @@ export type {
   SandboxInstance,
 } from "./sandbox.js";
 export type {
+  CodeContextCreateOptions,
+  CodeExecutionError,
+  CodeExecutionLogs,
+  CodeExecutionResult,
+  CodeOutputChunk,
+  RunCodeOptions,
+} from "./code-interpreter.js";
+export type {
   CommandResult,
   CommandStartOptions,
   GitCloneOptions as SandboxGitCloneOptions,
@@ -35,9 +43,6 @@ export type {
   WriteFileInput,
   WriteInfo,
 } from "./sandbox-facade.js";
-export type {
-  GatewayOptions,
-} from "./config.js";
 export type {
   RegistryConfig,
   AWSRegistryConfig,
@@ -54,6 +59,7 @@ export type {
   NpmInstallOptions,
   PipInstallOptions,
   TemplateBuildInfo,
+  TemplateBuildStatusInfo,
   TemplateBuildOptions,
   TemplateCommandOptions,
   TemplateCopyOptions,

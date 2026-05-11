@@ -1,12 +1,6 @@
-import { SandboxClient } from "../dist/index.js";
-const baseUrl = (process.env.SEACLOUD_BASE_URL ?? "").trim();
-if (!baseUrl) {
-  throw new Error("SEACLOUD_BASE_URL is required");
-}
-
-const apiKey = (process.env.SEACLOUD_API_KEY ?? "").trim();
-if (!apiKey) {
-  throw new Error("SEACLOUD_API_KEY is required");
+import { Sandbox } from "../dist/index.js";
+if (!(process.env.E2B_API_KEY ?? "").trim()) {
+  throw new Error("E2B_API_KEY is required");
 }
 
 const templateID = (process.env.SANDBOX_EXAMPLE_TEMPLATE_ID ?? "").trim();
@@ -16,27 +10,22 @@ if (!templateID) {
 
 const keepResources = ["1", "true", "yes"].includes((process.env.SANDBOX_EXAMPLE_KEEP_RESOURCES ?? "").trim().toLowerCase());
 
-const client = new SandboxClient({
-  baseUrl,
-  apiKey,
-});
-
-const created = await client.create(templateID, {
+const created = await Sandbox.create(templateID, {
   timeout: 1800,
   waitReady: true,
 });
 
-console.log("created sandbox:", created.sandboxID, created.status, created.envdUrl);
+console.log("created sandbox:", created.sandboxId, created.status, created.envdUrl);
 if (created.sandboxDomain) {
   console.log("sandbox domain:", created.sandboxDomain);
 }
 
 try {
   await created.reload();
-  console.log("sandbox detail:", created.sandboxID, created.state, created.status);
+  console.log("sandbox detail:", created.sandboxId, created.state, created.status);
 } finally {
   if (!keepResources) {
     await created.delete();
-    console.log("deleted sandbox:", created.sandboxID);
+    console.log("deleted sandbox:", created.sandboxId);
   }
 }

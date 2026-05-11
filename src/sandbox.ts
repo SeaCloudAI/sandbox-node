@@ -1,4 +1,4 @@
-import type { SandboxClient } from "./client.js";
+import type { GatewayClient } from "./gateway-client.js";
 import { ConfigurationError } from "./core/errors.js";
 import type {
   ConnectSandboxRequest,
@@ -14,7 +14,7 @@ import type {
 import type { SandboxRuntime } from "./runtime.js";
 
 type SandboxBindingClient = Pick<
-  SandboxClient,
+  GatewayClient,
   | "runtimeFromSandbox"
   | "getSandbox"
   | "getSandboxLogs"

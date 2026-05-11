@@ -15,8 +15,9 @@ import type {
   TemplateCreateRequest,
   TemplateResponse,
 } from "./build/types.js";
-import { pickGatewayOptions, resolveGatewayOptions, type GatewayOptions } from "./config.js";
-import { NotFoundError, ValidationError } from "./core/errors.js";
+import { resolveGatewayOptions } from "./config.js";
+import type { ClientOptions } from "./core/transport.js";
+import { ConfigurationError, NotFoundError, ValidationError } from "./core/errors.js";
 
 const TERMINAL_BUILD_STATUSES = new Set(["ready", "failed", "error", "cancelled"]);
 const LOG_LEVEL_ORDER = ["debug", "info", "warn", "error"] as const;
@@ -101,7 +102,9 @@ export interface BunInstallOptions extends TemplateCommandOptions {
   g?: boolean;
 }
 
-export interface TemplateBuildOptions extends GatewayOptions {
+export interface TemplateBuildOptions {
+  fetch?: ClientOptions["fetch"];
+  requestTimeoutMs?: number;
   tags?: string[];
   baseTemplateID?: string;
   cpuCount?: number;
@@ -124,11 +127,20 @@ export interface TemplateBuildStatusInfo extends Omit<BuildStatusResponse, "buil
   templateId: string;
 }
 
-export interface TemplateGetBuildStatusOptions extends GatewayOptions {
+export interface TemplateGetBuildStatusOptions {
+  fetch?: ClientOptions["fetch"];
+  requestTimeoutMs?: number;
   logsOffset?: number;
   limit?: number;
   level?: string;
 }
+
+type HighLevelClientOptions = {
+  fetch?: ClientOptions["fetch"];
+  requestTimeoutMs?: number;
+};
+type BoundTemplateBuildOptions = Omit<TemplateBuildOptions, "fetch" | "requestTimeoutMs">;
+type BoundTemplateGetBuildStatusOptions = Omit<TemplateGetBuildStatusOptions, "fetch" | "requestTimeoutMs">;
 
 export class ReadyCmd {
   readonly #cmd: string;
@@ -185,9 +197,9 @@ export class Template {
     nameOrOptions: string | (TemplateBuildOptions & { name: string }),
     maybeOptions: TemplateBuildOptions = {},
   ): Promise<TemplateBuildInfo> {
-    const { gateway, name, options } = normalizeStaticTemplateBuildArgs(nameOrOptions, maybeOptions);
+    const { clientOptions, name, options } = normalizeStaticTemplateBuildArgs(nameOrOptions, maybeOptions);
     return buildTemplateWithService(
-      new SandboxBuildService(resolveGatewayOptions(gateway)),
+      new SandboxBuildService(resolveGatewayOptions(clientOptions)),
       template,
       name,
       options,
@@ -199,32 +211,34 @@ export class Template {
     nameOrOptions: string | (TemplateBuildOptions & { name: string }),
     maybeOptions: TemplateBuildOptions = {},
   ): Promise<TemplateBuildInfo> {
-    const { gateway, name, options } = normalizeStaticTemplateBuildArgs(nameOrOptions, maybeOptions);
+    const { clientOptions, name, options } = normalizeStaticTemplateBuildArgs(nameOrOptions, maybeOptions);
     return buildTemplateWithService(
-      new SandboxBuildService(resolveGatewayOptions(gateway)),
+      new SandboxBuildService(resolveGatewayOptions(clientOptions)),
       template,
       name,
       { ...options, wait: false },
     );
   }
 
-  static async list(options: GatewayOptions & ListTemplatesParams = {}): Promise<TemplateResponse[]> {
-    const gateway = pickGatewayOptions(options);
-    const params = stripGatewayOptions(options);
-    return listTemplatesWithService(new SandboxBuildService(resolveGatewayOptions(gateway)), params);
+  static async list(options: ListTemplatesParams & HighLevelClientOptions = {}): Promise<TemplateResponse[]> {
+    assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
+    const { fetch, requestTimeoutMs, ...params } = options;
+    return listTemplatesWithService(new SandboxBuildService(resolveGatewayOptions({ fetch, requestTimeoutMs })), params);
   }
 
-  static async get(ref: string, options: GatewayOptions & GetTemplateParams = {}): Promise<TemplateResponse> {
-    const gateway = pickGatewayOptions(options);
-    const params = stripGatewayOptions(options);
-    return getTemplateWithService(new SandboxBuildService(resolveGatewayOptions(gateway)), ref, params);
+  static async get(ref: string, options: GetTemplateParams & HighLevelClientOptions = {}): Promise<TemplateResponse> {
+    assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
+    const { fetch, requestTimeoutMs, ...params } = options;
+    return getTemplateWithService(new SandboxBuildService(resolveGatewayOptions({ fetch, requestTimeoutMs })), ref, params);
   }
 
-  static async delete(ref: string, options: GatewayOptions = {}): Promise<void> {
+  static async delete(ref: string, options: HighLevelClientOptions = {}): Promise<void> {
+    assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
     await deleteTemplateWithService(new SandboxBuildService(resolveGatewayOptions(options)), ref);
   }
 
-  static async exists(ref: string, options: GatewayOptions = {}): Promise<boolean> {
+  static async exists(ref: string, options: HighLevelClientOptions = {}): Promise<boolean> {
+    assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
     return templateExistsWithService(new SandboxBuildService(resolveGatewayOptions(options)), ref);
   }
 
@@ -232,10 +246,10 @@ export class Template {
     data: { buildId?: string; templateId?: string },
     options: TemplateGetBuildStatusOptions = {},
   ): Promise<TemplateBuildStatusInfo> {
-    const gateway = pickGatewayOptions(options);
-    const params = stripGatewayOptions(options);
+    assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
+    const { fetch, requestTimeoutMs, ...params } = options;
     return getTemplateBuildStatusWithService(
-      new SandboxBuildService(resolveGatewayOptions(gateway)),
+      new SandboxBuildService(resolveGatewayOptions({ fetch, requestTimeoutMs })),
       data,
       params,
     );
@@ -491,7 +505,7 @@ export class Template {
   async buildWithService(
     service: SandboxBuildService,
     name: string,
-    options: Omit<TemplateBuildOptions, keyof GatewayOptions> = {},
+    options: BoundTemplateBuildOptions = {},
   ): Promise<TemplateBuildInfo> {
     const { name: templateName, tags: parsedTags } = parseTemplateName(name);
     const tags = dedupeStrings([...parsedTags, ...(options.tags ?? [])]);
@@ -711,7 +725,7 @@ export async function buildTemplateWithService(
   service: SandboxBuildService,
   template: Template,
   name: string,
-  options: Omit<TemplateBuildOptions, keyof GatewayOptions> = {},
+  options: BoundTemplateBuildOptions = {},
 ): Promise<TemplateBuildInfo> {
   return template.buildWithService(service, name, options);
 }
@@ -734,7 +748,7 @@ export async function templateExistsWithService(
 export async function getTemplateBuildStatusWithService(
   service: SandboxBuildService,
   data: { buildId?: string; templateId?: string },
-  options: Omit<TemplateGetBuildStatusOptions, keyof GatewayOptions> = {},
+  options: BoundTemplateGetBuildStatusOptions = {},
 ): Promise<TemplateBuildStatusInfo> {
   const templateID = (data.templateId ?? "").trim();
   const buildID = (data.buildId ?? "").trim();
@@ -784,34 +798,36 @@ function normalizeStaticTemplateBuildArgs(
   nameOrOptions: string | (TemplateBuildOptions & { name: string }),
   maybeOptions: TemplateBuildOptions,
 ): {
-  gateway: GatewayOptions;
+  clientOptions: HighLevelClientOptions;
   name: string;
-  options: Omit<TemplateBuildOptions, keyof GatewayOptions>;
+  options: BoundTemplateBuildOptions;
 } {
   if (typeof nameOrOptions === "string") {
+    assertNoHighLevelGatewayConfig(maybeOptions as Record<string, unknown>);
+    const { fetch, requestTimeoutMs, ...options } = maybeOptions;
     return {
-      gateway: pickGatewayOptions(maybeOptions),
+      clientOptions: { fetch, requestTimeoutMs },
       name: nameOrOptions,
-      options: stripGatewayOptions(maybeOptions),
+      options,
     };
   }
   const source = { ...nameOrOptions };
+  assertNoHighLevelGatewayConfig(source as Record<string, unknown>);
   const { name, ...rest } = source;
+  const { fetch, requestTimeoutMs, ...options } = rest;
   return {
-    gateway: pickGatewayOptions(source),
+    clientOptions: { fetch, requestTimeoutMs },
     name,
-    options: stripGatewayOptions(rest),
+    options,
   };
 }
 
-function stripGatewayOptions<T extends object>(source: T): Omit<T, keyof GatewayOptions> {
-  const rest = { ...(source as Record<string, unknown>) };
-  delete rest.baseUrl;
-  delete rest.apiKey;
-  delete rest.projectId;
-  delete rest.fetch;
-  delete rest.requestTimeoutMs;
-  return rest as Omit<T, keyof GatewayOptions>;
+function assertNoHighLevelGatewayConfig(source: Record<string, unknown>): void {
+  for (const key of ["baseUrl", "apiKey", "projectId", "domain"]) {
+    if (source[key] !== undefined) {
+      throw new ConfigurationError(`${key} is not supported on high-level Template helpers; use E2B_DOMAIN/E2B_API_KEY env vars`);
+    }
+  }
 }
 
 function normalizeLogLevel(level: string): LogEntryLevel {

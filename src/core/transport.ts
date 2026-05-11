@@ -1,10 +1,11 @@
 import { APIError, ConfigurationError, RequestTimeoutError } from "./errors.js";
 import type { ShutdownResponse } from "./types.js";
 import { SDK_VERSION } from "../version.js";
+import { resolveGatewayApiKey, resolveGatewayBaseUrl, resolveGatewayProjectId } from "../config.js";
 
 export interface ClientOptions {
-  baseUrl: string;
-  apiKey: string;
+  baseUrl?: string;
+  apiKey?: string;
   projectId?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
@@ -18,9 +19,9 @@ export class BaseTransport {
   protected readonly fetchImpl: typeof fetch;
 
   constructor(options: ClientOptions) {
-    const baseUrl = options.baseUrl.trim().replace(/\/+$/, "");
-    const apiKey = options.apiKey.trim();
-    const projectId = options.projectId?.trim();
+    const baseUrl = resolveGatewayBaseUrl(options.baseUrl).trim().replace(/\/+$/, "");
+    const apiKey = resolveGatewayApiKey(options.apiKey).trim();
+    const projectId = (resolveGatewayProjectId(options.projectId) ?? "").trim() || undefined;
 
     if (!baseUrl) {
       throw new ConfigurationError("baseUrl is required");

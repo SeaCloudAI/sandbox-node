@@ -2,15 +2,13 @@ import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 
-import { SandboxClient, Template } from "../dist/index.js";
+import { Template } from "../dist/index.js";
 
 const TERMINAL_BUILD_STATUSES = new Set(["ready", "failed", "error", "cancelled"]);
 
-const baseUrl = mustEnv("SEACLOUD_BASE_URL");
-const apiKey = mustEnv("SEACLOUD_API_KEY");
+mustEnv("E2B_API_KEY");
 const image = (process.env.SANDBOX_EXAMPLE_BUILD_IMAGE ?? "").trim() || "docker.io/library/alpine:3.20";
 const keepResources = envEnabled("SANDBOX_EXAMPLE_KEEP_RESOURCES");
-const client = new SandboxClient({ baseUrl, apiKey });
 
 const templateName = `node-template-features-${Date.now()}:v1`;
 
@@ -29,26 +27,27 @@ try {
     .copy(linkedFile, "/workspace/copied-link.txt", {
       mode: 0o600,
       resolveSymlinks: true,
+      user: "root",
     });
 
   const request = JSON.parse(await Template.toJSON(template));
   console.log("template request:", request.fromImage, request.steps?.length ?? 0, request.startCmd ?? "");
   console.log("dockerfile preview:", dockerfilePreview(Template.toDockerfile(template)));
 
-  const built = await client.buildTemplateInBackground(template, templateName);
-  templateID = built.templateID;
-  console.log("build started:", built.templateID, built.buildID, built.status);
+  const built = await Template.buildInBackground(template, templateName);
+  templateID = built.templateId;
+  console.log("build started:", built.templateId, built.buildId);
 
-  const buildStatus = await waitForBuild(built.templateID, built.buildID);
+  const buildStatus = await waitForBuild(built.templateId, built.buildId);
   console.log("build finished:", buildStatus.status, latestBuildLog(buildStatus));
   if (buildStatus.status !== "ready") {
     throw new Error(`template build did not succeed: ${buildStatus.status}`);
   }
 
-  const exists = await client.templateExists(templateID);
+  const exists = await Template.exists(templateID);
   console.log("template exists:", exists);
 
-  const detail = await client.getTemplate(templateID);
+  const detail = await Template.get(templateID);
   console.log("template detail:", detail.templateID, detail.buildStatus, (detail.names ?? []).join(","));
 
   if (keepResources) {
@@ -60,7 +59,7 @@ try {
   }
   if (!keepResources && templateID) {
     try {
-      await client.deleteTemplate(templateID);
+      await Template.delete(templateID);
       console.log("deleted template:", templateID);
     } catch (error) {
       console.log("delete template warning:", formatError(error));
@@ -92,7 +91,7 @@ async function prepareDockerfileFixture(root, image) {
 async function waitForBuild(templateID, buildID) {
   let logsOffset = 0;
   for (;;) {
-    const status = await client.getTemplateBuildStatus({ templateID, buildID }, { logsOffset, limit: 100 });
+    const status = await Template.getBuildStatus({ templateId: templateID, buildId: buildID }, { logsOffset, limit: 100 });
 
     for (const entry of status.logEntries ?? []) {
       console.log("build log:", entry.level, entry.step, entry.message);

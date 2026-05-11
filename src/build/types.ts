@@ -178,7 +178,6 @@ export interface TemplateResponse {
   emptyDirMedium?: string;
   objectBucket?: string;
   objectKeyPrefix?: string;
-  workspaceID?: string;
   nfsHostPath?: string;
   cpuLimitRatio?: number;
   memoryLimitRatio?: number;
