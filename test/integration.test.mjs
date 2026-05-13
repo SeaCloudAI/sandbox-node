@@ -325,38 +325,6 @@ test("build plane integration", { skip: !shouldRun }, async (t) => {
   const { client, buildImage } = integrationConfig();
   const build = client.build;
 
-  await t.test("direct build polling", async () => {
-    let direct;
-    direct = await build.directBuild({
-      project: "sdk-build-integration",
-      image: "node-direct-build",
-      tag: `t${Date.now()}`,
-      dockerfile: "FROM alpine:3.20\nRUN echo direct-build-test >/tmp/direct-build.txt\n",
-    });
-    assert.ok(direct.templateID);
-    assert.ok(direct.buildID);
-    assert.ok(direct.imageFullName);
-
-    try {
-      const status = await waitForBuildReady(build, direct.templateID, direct.buildID);
-      assert.equal(status.status, "ready");
-
-      const buildDetail = await build.getBuild(direct.templateID, direct.buildID);
-      assert.equal(buildDetail.buildID, direct.buildID);
-
-      const logs = await build.getBuildLogs(direct.templateID, direct.buildID, { limit: 10 });
-      assert.ok(Array.isArray(logs.logs));
-    } finally {
-      try {
-        await build.deleteTemplate(direct.templateID);
-      } catch (error) {
-        if (error?.statusCode !== 404) {
-          throw error;
-        }
-      }
-    }
-  });
-
   await t.test("template lifecycle", async () => {
     const name = `node-build-sdk-${Date.now()}`;
     const created = await build.createTemplate({

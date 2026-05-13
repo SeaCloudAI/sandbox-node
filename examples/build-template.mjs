@@ -1,6 +1,6 @@
 import { Template, defaultBuildLogger, waitForFile } from "../dist/index.js";
-if (!(process.env.E2B_API_KEY ?? "").trim()) {
-  throw new Error("E2B_API_KEY is required");
+if (!(process.env.SEACLOUD_API_KEY ?? "").trim()) {
+  throw new Error("SEACLOUD_API_KEY is required");
 }
 
 const image = (process.env.SANDBOX_EXAMPLE_BUILD_IMAGE ?? "").trim() || "docker.io/library/alpine:3.20";

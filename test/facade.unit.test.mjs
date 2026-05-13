@@ -8,6 +8,7 @@ import {
   CodeContext,
   CodeExecution,
   LogEntry,
+  Sandbox,
   Template,
   waitForPort,
 } from "../dist/index.js";
@@ -42,7 +43,6 @@ test("unit: bound sandbox creates a sandbox and exposes runtime modules", async 
           templateID: "base",
           envdUrl: "https://runtime.cloud.seaart.ai/sb-1",
           envdAccessToken: "unit-runtime-auth",
-          trafficAccessToken: "traffic-token",
           status: "running",
           state: "running",
         });
@@ -72,8 +72,8 @@ test("unit: bound sandbox creates a sandbox and exposes runtime modules", async 
 
   assert.equal(sandbox.sandboxId, "sb-1");
   assert.equal(sandbox.sandboxDomain, "runtime.cloud.seaart.ai");
+  assert.equal(sandbox.trafficAccessToken, "unit-runtime-auth");
   assert.equal(sandbox.getHost(3000), "https://runtime.cloud.seaart.ai/sb-1/proxy/3000/");
-  assert.equal(sandbox.trafficAccessToken, "traffic-token");
   assert.equal(sandbox.isRunning(), true);
 
   const result = await sandbox.commands.run("echo hello");
@@ -86,18 +86,19 @@ test("unit: bound sandbox creates a sandbox and exposes runtime modules", async 
   const writeInfo = await sandbox.files.write("/tmp/hello.txt", "hello from sandbox");
   const content = await sandbox.files.read("/tmp/hello.txt");
   assert.deepEqual(writeInfo, {
+    name: "hello.txt",
     path: "/tmp/hello.txt",
-    bytesWritten: 18,
+    type: "file",
   });
   assert.equal(content, "hello from sandbox");
   assert.equal(calls.length, 5);
 });
 
-test("unit: high-level create defaults to base template", async () => {
+test("unit: high-level create requires templateID", async () => {
   const client = createGatewayClient(async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname === "/api/v1/sandboxes") {
-        assert.deepEqual(JSON.parse(init.body), { waitReady: true });
+        assert.deepEqual(JSON.parse(init.body), { templateID: "base", waitReady: true });
         return jsonResponse(201, {
           sandboxID: "sb-default",
           templateID: "base",
@@ -110,8 +111,40 @@ test("unit: high-level create defaults to base template", async () => {
       throw new Error(`unexpected request: ${String(input)} ${init.method}`);
     });
 
-  const sandbox = await client.create({ waitReady: true });
+  const sandbox = await client.create("base", { waitReady: true });
   assert.equal(sandbox.templateId, "base");
+});
+
+test("unit: sandbox file urls are signed from runtime access token", async () => {
+  const client = createGatewayClient(async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/api/v1/sandboxes") {
+      return jsonResponse(201, {
+        sandboxID: "sb-url",
+        templateID: "base",
+        envdUrl: "https://runtime.cloud.seaart.ai/sb-url",
+        envdAccessToken: "signed-secret",
+        status: "running",
+        state: "running",
+      });
+    }
+    throw new Error(`unexpected request: ${String(input)} ${init?.method}`);
+  });
+  const sandbox = await client.create("base");
+
+  const downloadURL = await sandbox.downloadUrl("/tmp/demo.txt", { user: "root", useSignatureExpiration: 3600 });
+  const uploadURL = await sandbox.uploadUrl("/tmp/demo.txt", { user: "root" });
+  const parsedDownload = new URL(downloadURL);
+  const parsedUpload = new URL(uploadURL);
+
+  assert.equal(parsedDownload.pathname, "/sb-url/files");
+  assert.equal(parsedDownload.searchParams.get("path"), "/tmp/demo.txt");
+  assert.equal(parsedDownload.searchParams.get("username"), "root");
+  assert.equal(parsedDownload.searchParams.get("signature_expiration"), "3600");
+  assert.match(parsedDownload.searchParams.get("signature"), /^v1_/);
+  assert.equal(parsedUpload.pathname, "/sb-url/files");
+  assert.equal(parsedUpload.searchParams.get("path"), "/tmp/demo.txt");
+  assert.match(parsedUpload.searchParams.get("signature"), /^v1_/);
 });
 
 test("unit: bound sandbox exposes git helpers", async () => {
@@ -169,7 +202,7 @@ test("unit: bound sandbox exposes filesystem, pty, proxy, and extra git helpers"
       }
       if (url.pathname === "/sb-ops/filesystem.Filesystem/Stat") {
         const request = JSON.parse(init.body);
-        if (request.path === "/tmp/missing") {
+        if (request.path === "/tmp/missing" || request.path === "/tmp/new") {
           return jsonResponse(404, { error: { message: "not found" } });
         }
         return jsonResponse(200, {
@@ -276,13 +309,27 @@ test("unit: bound sandbox exposes filesystem, pty, proxy, and extra git helpers"
   assert.equal(await sandbox.files.exists("/tmp/missing"), false);
   assert.equal(await sandbox.files.exists("/tmp/a.txt"), true);
   assert.equal((await sandbox.files.getInfo("/tmp/a.txt")).path, "/tmp/a.txt");
+  assert.equal((await sandbox.files.getInfo("/tmp/a.txt")).type, "file");
   assert.equal((await sandbox.files.list("/tmp", { depth: 1 }))[0].path, "/tmp/a.txt");
+  assert.equal((await sandbox.files.list("/tmp", { depth: 1 }))[0].type, "file");
   assert.equal(await sandbox.files.makeDir("/tmp/new"), true);
+  assert.equal(await sandbox.files.makeDir("/tmp/a.txt"), false);
   await sandbox.files.remove("/tmp/old");
   assert.equal((await sandbox.files.rename("/tmp/a.txt", "/tmp/b.txt")).path, "/tmp/b.txt");
-  const watch = await sandbox.files.watchDir("/tmp", { recursive: true });
-  assert.deepEqual(await watch.next(), { filesystem: { name: "a.txt", type: "EVENT_TYPE_WRITE" } });
-  await watch.close();
+  assert.equal((await sandbox.files.rename("/tmp/a.txt", "/tmp/b.txt")).type, "file");
+  const events = [];
+  let stopWatch;
+  const eventSeen = new Promise((resolve) => {
+    sandbox.files.watchDir("/tmp", (event) => {
+      events.push(event);
+      resolve();
+    }, { recursive: true }).then((watch) => {
+      stopWatch = () => watch.stop();
+    });
+  });
+  await eventSeen;
+  await stopWatch();
+  assert.deepEqual(events, [{ name: "a.txt", type: "write" }]);
 
   const created = await sandbox.pty.create("bash", { size: { cols: 90, rows: 30 } });
   const connected = await sandbox.pty.connect(77);
@@ -293,14 +340,14 @@ test("unit: bound sandbox exposes filesystem, pty, proxy, and extra git helpers"
   assert.equal(await sandbox.pty.kill(404), false);
   assert.equal(await sandbox.pty.kill(405), false);
 
-  await sandbox.git.pull("/workspace/repo", { envs: { A: "1" }, timeout: 5 });
+  await sandbox.git.pull("/workspace/repo", { envs: { A: "1" }, timeoutMs: 5000 });
   await sandbox.git.checkout("main", "/workspace/repo");
   await sandbox.git.status("/workspace/repo");
 
   const proxy = await sandbox.proxy({ port: 8080, path: "/health" });
   assert.equal(await proxy.text(), "proxied");
   assert.deepEqual(runCalls, [
-    { cmd: "git", args: ["pull"], cwd: "/workspace/repo", env: { A: "1" }, timeout: 5 },
+    { cmd: "git", args: ["pull"], cwd: "/workspace/repo", env: { A: "1" }, timeoutMs: 5000 },
     { cmd: "git", args: ["checkout", "main"], cwd: "/workspace/repo" },
     { cmd: "git", args: ["status"], cwd: "/workspace/repo" },
   ]);
@@ -321,7 +368,7 @@ test("unit: bound sandbox can list sandboxes before runtime is ready", async () 
         state: "paused",
       }]);
     });
-  const sandboxes = await client.list();
+  const sandboxes = await client.list().nextItems();
 
   assert.equal(sandboxes.length, 1);
   assert.equal(sandboxes[0].sandboxID, "sb-2");
@@ -330,6 +377,7 @@ test("unit: bound sandbox can list sandboxes before runtime is ready", async () 
 
 test("unit: bound sandbox exposes getInfo and resume helpers", async () => {
   let connectRequested = false;
+  let getRequests = 0;
   const client = createGatewayClient(async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname === "/api/v1/sandboxes") {
@@ -341,11 +389,11 @@ test("unit: bound sandbox exposes getInfo and resume helpers", async () => {
         });
       }
       if (url.pathname === "/api/v1/sandboxes/sb-3" && init.method === "GET") {
+        getRequests += 1;
         return jsonResponse(200, {
           sandboxID: "sb-3",
           templateID: "base",
           clientID: "user-1",
-          envdVersion: "atlas-0.1.0",
           envdUrl: "https://runtime.cloud.seaart.ai/sb-3",
           envdAccessToken: "runtime-token",
           status: "paused",
@@ -364,7 +412,6 @@ test("unit: bound sandbox exposes getInfo and resume helpers", async () => {
           sandboxID: "sb-3",
           templateID: "base",
           clientID: "user-1",
-          envdVersion: "atlas-0.1.0",
           envdUrl: "https://runtime.cloud.seaart.ai/sb-3",
           envdAccessToken: "runtime-token",
           status: "running",
@@ -378,7 +425,10 @@ test("unit: bound sandbox exposes getInfo and resume helpers", async () => {
   const sandbox = await client.create("base");
 
   const detail = await sandbox.getInfo();
-  assert.equal(detail.status, "paused");
+  const fullInfo = await sandbox.getFullInfo();
+  assert.equal(detail.state, "paused");
+  assert.equal(fullInfo.state, "paused");
+  assert.equal(getRequests, 2);
   assert.equal(sandbox.isRunning(), false);
 
   const resumed = await sandbox.resume();
@@ -482,7 +532,7 @@ test("unit: bound sandbox runCode uses default python context and preserves exec
 
   const execution1 = await sandbox.runCode("x = 1\nprint('hello')\nx", {
     cwd: "/workspace",
-    timeout: 30,
+    timeoutMs: 30000,
     onStdout: (chunk) => stdout.push(chunk),
     onStderr: (chunk) => stderr.push(chunk),
     onResult: (result) => results.push(result),
@@ -558,7 +608,7 @@ test("unit: bound sandbox manages explicit python code contexts", async () => {
       throw new Error(`unexpected request: ${String(input)} ${init.method}`);
     });
   const sandbox = await client.create("base");
-  const context = await sandbox.createCodeContext({ cwd: "/workspace", language: "python", timeout: 10 });
+  const context = await sandbox.createCodeContext({ cwd: "/workspace", language: "python", timeoutMs: 10000 });
 
   assert.equal(context instanceof CodeContext, true);
   assert.equal((await sandbox.listCodeContexts()).length, 1);
@@ -592,7 +642,7 @@ test("unit: non-python code contexts behave as stateless execution profiles", as
         const request = JSON.parse(init.body);
         assert.equal(request.process.cmd, "bash");
         assert.equal(request.process.cwd, "/workspace/app");
-        assert.equal(request.timeout, 12);
+        assert.equal(request.timeoutMs, 12000);
         const stream = new ReadableStream({
           start(controller) {
             controller.enqueue(connectFrame({ event: { start: { pid: 88, cmdId: "cmd-bash" } } }));
@@ -617,7 +667,7 @@ test("unit: non-python code contexts behave as stateless execution profiles", as
     });
 
   const sandbox = await client.create("base");
-  const context = await sandbox.createCodeContext({ cwd: "/workspace/app", language: "bash", timeout: 12 });
+  const context = await sandbox.createCodeContext({ cwd: "/workspace/app", language: "bash", timeoutMs: 12000 });
   const execution = await sandbox.runCode("echo hi", { context });
 
   assert.equal(context.language, "bash");
@@ -632,7 +682,7 @@ test("unit: non-python code contexts behave as stateless execution profiles", as
 
 test("unit: client template workflow builds and polls until ready", async () => {
   const logs = [];
-  const template = new Template()
+  const template = Template()
     .fromImage("docker.io/library/node:20")
     .runCmd("npm install")
     .setStartCmd("npm start", waitForPort(3000));
@@ -766,10 +816,10 @@ test("unit: client.buildTemplateInBackground skips polling and returns building 
 test("unit: Template static helpers use env-first gateway flow", async () => {
   const calls = [];
   const template = new Template().fromImage("docker.io/library/node:20");
-  const previousDomain = process.env.E2B_DOMAIN;
-  const previousAPIKey = process.env.E2B_API_KEY;
-  process.env.E2B_DOMAIN = "https://sandbox-gateway.cloud.seaart.ai";
-  process.env.E2B_API_KEY = "unit-auth-value";
+  const previousDomain = process.env.SEACLOUD_BASE_URL;
+  const previousAPIKey = process.env.SEACLOUD_API_KEY;
+  process.env.SEACLOUD_BASE_URL = "https://sandbox-gateway.cloud.seaart.ai";
+  process.env.SEACLOUD_API_KEY = "unit-auth-value";
 
   try {
     const built = await Template.build(
@@ -921,14 +971,66 @@ test("unit: Template static helpers use env-first gateway flow", async () => {
     assert.equal(status.buildId, "build-1");
   } finally {
     if (previousDomain === undefined) {
-      delete process.env.E2B_DOMAIN;
+      delete process.env.SEACLOUD_BASE_URL;
     } else {
-      process.env.E2B_DOMAIN = previousDomain;
+      process.env.SEACLOUD_BASE_URL = previousDomain;
     }
     if (previousAPIKey === undefined) {
-      delete process.env.E2B_API_KEY;
+      delete process.env.SEACLOUD_API_KEY;
     } else {
-      process.env.E2B_API_KEY = previousAPIKey;
+      process.env.SEACLOUD_API_KEY = previousAPIKey;
+    }
+  }
+});
+
+test("unit: Template tag helpers use build tag endpoints", async () => {
+  const previousDomain = process.env.SEACLOUD_BASE_URL;
+  const previousAPIKey = process.env.SEACLOUD_API_KEY;
+  process.env.SEACLOUD_BASE_URL = "https://sandbox-gateway.cloud.seaart.ai";
+  process.env.SEACLOUD_API_KEY = "unit-auth-value";
+  const calls = [];
+  const fetch = async (input, init) => {
+    const url = new URL(String(input));
+    calls.push({ path: url.pathname, method: init.method, body: init.body ? JSON.parse(init.body) : undefined });
+    if (url.pathname === "/api/v1/templates/resolve/demo" && init.method === "GET") {
+      return jsonResponse(200, { templateID: "tpl-tags", public: false });
+    }
+    if (url.pathname === "/api/v1/templates/tags" && init.method === "POST") {
+      return jsonResponse(201, { buildID: "build-1", tags: ["v1", "stable", "prod"] });
+    }
+    if (url.pathname === "/api/v1/templates/tpl-tags/tags" && init.method === "GET") {
+      return jsonResponse(200, [
+        { buildID: "build-1", createdAt: "2026-01-01T00:01:00Z", tag: "v1" },
+        { buildID: "build-1", createdAt: "2026-01-01T00:01:00Z", tag: "stable" },
+      ]);
+    }
+    if (url.pathname === "/api/v1/templates/tags" && init.method === "DELETE") {
+      return new Response(null, { status: 204 });
+    }
+    throw new Error(`unexpected request: ${String(input)} ${init.method}`);
+  };
+
+  try {
+    const assigned = await Template.assignTags("demo:v1", ["stable", "prod"], { fetch });
+    const tags = await Template.getTags("tpl-tags", { fetch });
+    await Template.removeTags("demo", "stable", { fetch });
+
+    assert.deepEqual(assigned, { buildId: "build-1", tags: ["v1", "stable", "prod"] });
+    assert.deepEqual(tags, [
+      { buildId: "build-1", createdAt: new Date("2026-01-01T00:01:00Z"), tag: "v1" },
+      { buildId: "build-1", createdAt: new Date("2026-01-01T00:01:00Z"), tag: "stable" },
+    ]);
+    assert.deepEqual(calls.filter((call) => call.path === "/api/v1/templates/tags").map((call) => call.method), ["POST", "DELETE"]);
+  } finally {
+    if (previousDomain === undefined) {
+      delete process.env.SEACLOUD_BASE_URL;
+    } else {
+      process.env.SEACLOUD_BASE_URL = previousDomain;
+    }
+    if (previousAPIKey === undefined) {
+      delete process.env.SEACLOUD_API_KEY;
+    } else {
+      process.env.SEACLOUD_API_KEY = previousAPIKey;
     }
   }
 });
@@ -1080,7 +1182,7 @@ test("unit: client list/get/delete template helpers forward facade options", asy
     calls.push({ path: url.pathname, search: url.search, method: init.method });
     if (url.pathname === "/api/v1/templates" && init.method === "GET") {
       assert.equal(url.searchParams.get("visibility"), "team");
-      assert.equal(url.searchParams.get("teamID"), "team-1");
+      assert.equal(url.searchParams.has("teamID"), false);
       assert.equal(url.searchParams.get("limit"), "20");
       assert.equal(url.searchParams.get("offset"), "40");
       return jsonResponse(200, [{ templateID: "tpl-direct" }]);
@@ -1099,7 +1201,7 @@ test("unit: client list/get/delete template helpers forward facade options", asy
     throw new Error(`unexpected request: ${String(input)} ${init.method}`);
   });
 
-  const listed = await client.listTemplates({ visibility: "team", teamID: "team-1", limit: 20, offset: 40 });
+  const listed = await client.listTemplates({ visibility: "team", limit: 20, offset: 40 });
   const detail = await client.getTemplate("tpl-direct", { limit: 10, nextToken: "build-1" });
   await client.deleteTemplate("demo");
 
@@ -1366,8 +1468,8 @@ test("unit: filesystem helper supports writeFiles batch helper", async () => {
   ]);
 
   assert.deepEqual(written, [
-    { path: "/tmp/a.txt", bytesWritten: 1 },
-    { path: "/tmp/b.txt", bytesWritten: 2 },
+    { name: "a.txt", path: "/tmp/a.txt", type: "file" },
+    { name: "b.txt", path: "/tmp/b.txt", type: "file" },
   ]);
 });
 
@@ -1392,6 +1494,7 @@ test("unit: command and pty handles encode stdin and decode streamed output", as
           start(controller) {
             if (cmd === "cat") {
               controller.enqueue(connectFrame({ event: { start: { pid: 41, cmdId: "cmd-bg" } } }));
+              controller.enqueue(connectFrame({ event: { data: { stdout: Buffer.from("live\n").toString("base64") } } }));
               controller.enqueue(connectFrame({ event: { end: { exited: true, status: "exited", error: null } } }));
             } else {
               controller.enqueue(connectFrame({ event: { start: { pid: 42, cmdId: "cmd-pty" } } }));
@@ -1410,6 +1513,20 @@ test("unit: command and pty handles encode stdin and decode streamed output", as
         inputCalls.push(JSON.parse(init.body));
         return jsonResponse(200, {});
       }
+      if (url.pathname === "/sb-handle/process.Process/Connect") {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(connectFrame({ event: { start: { pid: 41, cmdId: "cmd-bg" } } }));
+            controller.enqueue(connectFrame({ event: { data: { stdout: Buffer.from("connected\n").toString("base64") } } }));
+            controller.enqueue(connectFrame({ event: { end: { exited: true, status: "exited", error: null } } }));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { "content-type": "application/connect+json" },
+        });
+      }
       if (url.pathname === "/sb-handle/process.Process/GetResult") {
         const request = JSON.parse(init.body);
         if (request.cmdId === "cmd-bg") {
@@ -1424,12 +1541,25 @@ test("unit: command and pty handles encode stdin and decode streamed output", as
   const handle = await sandbox.commands.run("cat", { background: true });
   await handle.sendStdin("ping\n");
   const waited = await handle.wait();
+  const stdoutChunks = [];
+  const streamed = await sandbox.commands.run("cat", {
+    stdin: false,
+    onStdout: (chunk) => stdoutChunks.push(chunk),
+  });
+  const connectChunks = [];
+  const connected = await sandbox.commands.connect(41, {
+    onStdout: (chunk) => connectChunks.push(chunk),
+  });
+  await connected.wait();
 
   const ptyHandle = await sandbox.pty.create("bash");
-  await ptyHandle.sendStdin("ls\n");
+  await ptyHandle.sendInput("ls\n");
   const ptyWaited = await ptyHandle.wait();
 
   assert.equal(waited.stdout, "ping\n");
+  assert.equal(streamed.stdout, "ping\n");
+  assert.deepEqual(stdoutChunks, ["live\n"]);
+  assert.deepEqual(connectChunks, ["connected\n"]);
   assert.equal(ptyWaited.pty, "shell$ ");
   assert.deepEqual(inputCalls, [
     { process: { pid: 41 }, input: { stdin: Buffer.from("ping\n").toString("base64") } },
@@ -1473,15 +1603,91 @@ test("unit: commands and pty accept timeout and user options", async () => {
     });
   const sandbox = await client.create("base");
 
-  await sandbox.commands.run("echo", { args: ["hello"], timeout: 2, user: "app" });
-  await sandbox.pty.create("bash", { timeout: 3, user: "root" });
+  await sandbox.commands.run("echo", { args: ["hello"], timeoutMs: 2000, user: "app" });
+  await sandbox.pty.create("bash", { timeoutMs: 3000, user: "root" });
 
-  assert.equal(runCalls[0].timeout, 2);
+  assert.equal(runCalls[0].timeoutMs, 2000);
   assert.equal(runCalls[0].cmd, "sh");
   assert.match(runCalls[0].args[1], /su -s \/bin\/sh 'app'/);
-  assert.equal(startCalls[0].timeout, 3);
+  assert.equal(startCalls[0].timeoutMs, 3000);
   assert.equal(startCalls[0].process.cmd, "sh");
   assert.match(startCalls[0].process.args[1], /su -s \/bin\/sh 'root'/);
+});
+
+test("unit: pause returns boolean and sandbox timeout uses seconds", async () => {
+  const calls = [];
+  const fetchImpl = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/api/v1/sandboxes/sb-pause" && init.method === "GET") {
+      return jsonResponse(200, {
+        templateID: "base",
+        sandboxID: "sb-pause",
+        envdUrl: "https://runtime.cloud.seaart.ai/sb-pause",
+        envdAccessToken: "unit-runtime-auth",
+        status: "running",
+        state: "running",
+      });
+    }
+    if (url.pathname === "/api/v1/sandboxes/sb-pause/pause" && init.method === "POST") {
+      calls.push({ path: url.pathname, method: init.method });
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === "/api/v1/sandboxes" && init.method === "POST") {
+      return jsonResponse(201, {
+        templateID: "base",
+        sandboxID: "sb-pause",
+        envdUrl: "https://runtime.cloud.seaart.ai/sb-pause",
+        envdAccessToken: "unit-runtime-auth",
+        status: "running",
+        state: "running",
+      });
+    }
+    if (url.pathname === "/sb-pause/run") {
+      calls.push({ path: url.pathname, method: init.method, body: JSON.parse(init.body) });
+      return jsonResponse(200, { stdout: "ok\n", stderr: "", exit_code: 0, duration_ms: 1 });
+    }
+    if (url.pathname === "/sb-pause/process.Process/Start") {
+      calls.push({ path: url.pathname, method: init.method, body: JSON.parse(init.body) });
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(connectFrame({ event: { start: { pid: 1 } } }));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { "content-type": "application/connect+json" },
+      });
+    }
+    if (url.pathname === "/api/v1/sandboxes/sb-pause/timeout" && init.method === "POST") {
+      calls.push({ path: url.pathname, method: init.method, body: JSON.parse(init.body) });
+      return new Response(null, { status: 204 });
+    }
+    throw new Error(`unexpected request: ${String(input)} ${init.method}`);
+  };
+  const client = createGatewayClient(fetchImpl);
+  const previousDomain = process.env.SEACLOUD_BASE_URL;
+  const previousAPIKey = process.env.SEACLOUD_API_KEY;
+  process.env.SEACLOUD_BASE_URL = "https://sandbox-gateway.cloud.seaart.ai";
+  process.env.SEACLOUD_API_KEY = "unit-auth-value";
+
+  try {
+    assert.equal(await Sandbox.pause("sb-pause", { fetch: fetchImpl }), true);
+    const sandbox = await client.create("base");
+    assert.equal(await sandbox.pause(), true);
+    assert.equal(await sandbox.pause(), false);
+
+    await sandbox.commands.run("echo", { timeoutMs: 1500 });
+    await sandbox.pty.create("bash", { timeoutMs: 2500 });
+    await sandbox.setTimeout(1500);
+
+    assert.equal(calls.find((call) => call.path === "/sb-pause/run")?.body.timeoutMs, 1500);
+    assert.equal(calls.find((call) => call.path === "/sb-pause/process.Process/Start")?.body.timeoutMs, 2500);
+    assert.equal(calls.find((call) => call.path === "/api/v1/sandboxes/sb-pause/timeout")?.body.timeout, 1500);
+  } finally {
+    process.env.SEACLOUD_BASE_URL = previousDomain;
+    process.env.SEACLOUD_API_KEY = previousAPIKey;
+  }
 });
 
 function connectFrame(payload) {

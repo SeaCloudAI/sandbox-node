@@ -3,6 +3,7 @@ import { BaseTransport } from "../core/transport.js";
 import type {
   ConnectSandboxRequest,
   ConnectSandboxResponse,
+  ControlRequestOptions,
   HeartbeatRequest,
   HeartbeatResponse,
   ListSandboxesParams,
@@ -21,7 +22,12 @@ import type {
 } from "./types.js";
 
 export class SandboxControlService extends BaseTransport {
-  async createSandbox(body: NewSandboxRequest): Promise<Sandbox> {
+  async createSandbox(body: NewSandboxRequest, options: ControlRequestOptions = {}): Promise<Sandbox> {
+    if (typeof body.templateID !== "string" || !body.templateID.trim()) {
+      throw new ValidationError("templateID is required");
+    }
+    rejectUnsupportedCreateFields(body as unknown as Record<string, unknown>);
+
     return this.requestJson<Sandbox>(
       "/api/v1/sandboxes",
       {
@@ -30,37 +36,40 @@ export class SandboxControlService extends BaseTransport {
         body: JSON.stringify(body),
       },
       [201],
+      options.requestTimeoutMs,
     );
   }
 
-  async listSandboxes(params: ListSandboxesParams = {}): Promise<ListedSandbox[]> {
+  async listSandboxes(params: ListSandboxesParams = {}, options: ControlRequestOptions = {}): Promise<ListedSandbox[]> {
     const path = withQuery("/api/v1/sandboxes", encodeListParams(params));
     return this.requestJson<ListedSandbox[]>(path, {
       method: "GET",
-    });
+    }, [200], options.requestTimeoutMs);
   }
 
-  async getSandbox(sandboxID: string): Promise<SandboxDetail> {
+  async getSandbox(sandboxID: string, options: ControlRequestOptions = {}): Promise<SandboxDetail> {
     this.requireSandboxID(sandboxID);
 
     return this.requestJson<SandboxDetail>(`/api/v1/sandboxes/${encodeURIComponent(sandboxID)}`, {
       method: "GET",
-    });
+    }, [200], options.requestTimeoutMs);
   }
 
-  async deleteSandbox(sandboxID: string): Promise<void> {
+  async deleteSandbox(sandboxID: string, options: ControlRequestOptions = {}): Promise<void> {
     this.requireSandboxID(sandboxID);
 
     await this.requestEmpty(
       `/api/v1/sandboxes/${encodeURIComponent(sandboxID)}`,
       { method: "DELETE" },
       [204],
+      options.requestTimeoutMs,
     );
   }
 
   async getSandboxLogs(
     sandboxID: string,
     params: SandboxLogsParams = {},
+    options: ControlRequestOptions = {},
   ): Promise<SandboxLogsResponse> {
     this.requireSandboxID(sandboxID);
     this.validateLogsParams(params);
@@ -71,31 +80,33 @@ export class SandboxControlService extends BaseTransport {
     );
     return this.requestJson<SandboxLogsResponse>(path, {
       method: "GET",
-    });
+    }, [200], options.requestTimeoutMs);
   }
 
-  async pauseSandbox(sandboxID: string): Promise<void> {
+  async pauseSandbox(sandboxID: string, options: ControlRequestOptions = {}): Promise<void> {
     this.requireSandboxID(sandboxID);
 
     await this.requestEmpty(
       `/api/v1/sandboxes/${encodeURIComponent(sandboxID)}/pause`,
       { method: "POST" },
       [204],
+      options.requestTimeoutMs,
     );
   }
 
   async connectSandbox(
     sandboxID: string,
     body: ConnectSandboxRequest,
+    options: ControlRequestOptions = {},
   ): Promise<ConnectSandboxResponse> {
     this.requireSandboxID(sandboxID);
-    this.validateTimeout(body.timeout, "connect timeout");
+    this.validateTimeoutSeconds(body.timeout, "connect timeout");
 
     const response = await this.request(`/api/v1/sandboxes/${encodeURIComponent(sandboxID)}/connect`, {
       method: "POST",
       headers: this.buildJSONHeaders(),
       body: JSON.stringify(body),
-    });
+    }, options.requestTimeoutMs);
     if (![200, 201].includes(response.status)) {
       throw await APIError.fromResponse(response);
     }
@@ -104,9 +115,9 @@ export class SandboxControlService extends BaseTransport {
     return { statusCode: response.status, sandbox };
   }
 
-  async setSandboxTimeout(sandboxID: string, body: TimeoutRequest): Promise<void> {
+  async setSandboxTimeout(sandboxID: string, body: TimeoutRequest, options: ControlRequestOptions = {}): Promise<void> {
     this.requireSandboxID(sandboxID);
-    this.validateTimeout(body.timeout, "timeout");
+    this.validateTimeoutSeconds(body.timeout, "timeout");
 
     await this.requestEmpty(
       `/api/v1/sandboxes/${encodeURIComponent(sandboxID)}/timeout`,
@@ -116,12 +127,14 @@ export class SandboxControlService extends BaseTransport {
         body: JSON.stringify(body),
       },
       [204],
+      options.requestTimeoutMs,
     );
   }
 
   async refreshSandbox(
     sandboxID: string,
     body?: RefreshSandboxRequest,
+    options: ControlRequestOptions = {},
   ): Promise<void> {
     this.requireSandboxID(sandboxID);
     this.validateRefreshDuration(body?.duration);
@@ -134,6 +147,7 @@ export class SandboxControlService extends BaseTransport {
         body: body === undefined ? undefined : JSON.stringify(body),
       },
       [204],
+      options.requestTimeoutMs,
     );
   }
 
@@ -201,8 +215,8 @@ export class SandboxControlService extends BaseTransport {
     }
   }
 
-  private validateTimeout(timeout: number, field: string): void {
-    if (!Number.isInteger(timeout) || timeout < 0 || timeout > 86400) {
+  private validateTimeoutSeconds(timeout: number, field: string): void {
+    if (!Number.isInteger(timeout) || timeout < 0 || timeout > 86_400) {
       throw new ValidationError(`${field} must be an integer between 0 and 86400`);
     }
   }
@@ -242,6 +256,14 @@ export class SandboxControlService extends BaseTransport {
 
   private buildJSONHeaders(): Headers {
     return this.buildHeaders({ "Content-Type": "application/json" });
+  }
+}
+
+function rejectUnsupportedCreateFields(source: Record<string, unknown>): void {
+  for (const key of ["autoResume", "secure", "allow_internet_access", "network", "mcp", "volumeMounts"]) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      throw new ValidationError(`${key} is not supported`);
+    }
   }
 }
 

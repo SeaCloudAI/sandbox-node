@@ -127,6 +127,17 @@ export interface TemplateBuildStatusInfo extends Omit<BuildStatusResponse, "buil
   templateId: string;
 }
 
+export interface TemplateTag {
+  buildId: string;
+  createdAt: Date;
+  tag: string;
+}
+
+export interface TemplateTagInfo {
+  buildId: string;
+  tags: string[];
+}
+
 export interface TemplateGetBuildStatusOptions {
   fetch?: ClientOptions["fetch"];
   requestTimeoutMs?: number;
@@ -235,6 +246,32 @@ export class Template {
   static async delete(ref: string, options: HighLevelClientOptions = {}): Promise<void> {
     assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
     await deleteTemplateWithService(new SandboxBuildService(resolveGatewayOptions(options)), ref);
+  }
+
+  static async assignTags(
+    targetName: string,
+    tags: string | string[],
+    options: HighLevelClientOptions = {},
+  ): Promise<TemplateTagInfo> {
+    assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
+    return assignTemplateTagsWithService(new SandboxBuildService(resolveGatewayOptions(options)), targetName, tags);
+  }
+
+  static async getTags(
+    templateId: string,
+    options: HighLevelClientOptions = {},
+  ): Promise<TemplateTag[]> {
+    assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
+    return getTemplateTagsWithService(new SandboxBuildService(resolveGatewayOptions(options)), templateId);
+  }
+
+  static async removeTags(
+    name: string,
+    tags: string | string[],
+    options: HighLevelClientOptions = {},
+  ): Promise<void> {
+    assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
+    await removeTemplateTagsWithService(new SandboxBuildService(resolveGatewayOptions(options)), name, tags);
   }
 
   static async exists(ref: string, options: HighLevelClientOptions = {}): Promise<boolean> {
@@ -487,11 +524,6 @@ export class Template {
     return this;
   }
 
-  filesHash(filesHash: string): this {
-    this.#builder.filesHash(filesHash);
-    return this;
-  }
-
   request(): BuildRequest {
     const request = this.#builder.toRequest();
     for (const step of request.steps ?? []) {
@@ -658,6 +690,40 @@ export class Template {
   }
 }
 
+export interface TemplateFactory {
+  new(): Template;
+  (): Template;
+  build: typeof Template.build;
+  buildInBackground: typeof Template.buildInBackground;
+  list: typeof Template.list;
+  get: typeof Template.get;
+  delete: typeof Template.delete;
+  assignTags: typeof Template.assignTags;
+  getTags: typeof Template.getTags;
+  removeTags: typeof Template.removeTags;
+  exists: typeof Template.exists;
+  getBuildStatus: typeof Template.getBuildStatus;
+  toJSON: typeof Template.toJSON;
+  toDockerfile: typeof Template.toDockerfile;
+}
+
+export const createTemplate = function createTemplate(): Template {
+  return new Template();
+} as TemplateFactory;
+
+createTemplate.build = Template.build.bind(Template) as typeof Template.build;
+createTemplate.buildInBackground = Template.buildInBackground.bind(Template) as typeof Template.buildInBackground;
+createTemplate.list = Template.list.bind(Template);
+createTemplate.get = Template.get.bind(Template);
+createTemplate.delete = Template.delete.bind(Template);
+createTemplate.assignTags = Template.assignTags.bind(Template);
+createTemplate.getTags = Template.getTags.bind(Template);
+createTemplate.removeTags = Template.removeTags.bind(Template);
+createTemplate.exists = Template.exists.bind(Template);
+createTemplate.getBuildStatus = Template.getBuildStatus.bind(Template);
+createTemplate.toJSON = Template.toJSON.bind(Template);
+createTemplate.toDockerfile = Template.toDockerfile.bind(Template);
+
 export function defaultBuildLogger(
   options: { minLevel?: LogEntryLevel } = {},
 ): (entry: LogEntry) => void {
@@ -745,6 +811,43 @@ export async function templateExistsWithService(
   }
 }
 
+export async function assignTemplateTagsWithService(
+  service: SandboxBuildService,
+  targetName: string,
+  tags: string | string[],
+): Promise<TemplateTagInfo> {
+  const response = await service.assignTemplateTags({
+    target: targetName,
+    tags: normalizeTemplateTagInput(tags),
+  });
+  return {
+    buildId: response.buildID,
+    tags: [...response.tags],
+  };
+}
+
+export async function getTemplateTagsWithService(
+  service: SandboxBuildService,
+  templateId: string,
+): Promise<TemplateTag[]> {
+  return (await service.listTemplateTags(templateId)).map((tag) => ({
+    buildId: tag.buildID,
+    createdAt: new Date(tag.createdAt),
+    tag: tag.tag,
+  }));
+}
+
+export async function removeTemplateTagsWithService(
+  service: SandboxBuildService,
+  name: string,
+  tags: string | string[],
+): Promise<void> {
+  await service.deleteTemplateTags({
+    name,
+    tags: normalizeTemplateTagInput(tags),
+  });
+}
+
 export async function getTemplateBuildStatusWithService(
   service: SandboxBuildService,
   data: { buildId?: string; templateId?: string },
@@ -794,6 +897,26 @@ export async function deleteTemplateWithService(
   await service.deleteTemplate(await resolveTemplateRefID(service, ref));
 }
 
+async function getTemplateForTagMutationWithService(
+  service: SandboxBuildService,
+  ref: string,
+): Promise<TemplateResponse> {
+  let originalError: NotFoundError | undefined;
+  try {
+    return await getTemplateWithService(service, ref);
+  } catch (error) {
+    if (!(error instanceof NotFoundError)) {
+      throw error;
+    }
+    originalError = error;
+  }
+  const [name] = splitTemplateNameAndTags(ref);
+  if (name === ref) {
+    throw originalError;
+  }
+  return getTemplateWithService(service, name);
+}
+
 function normalizeStaticTemplateBuildArgs(
   nameOrOptions: string | (TemplateBuildOptions & { name: string }),
   maybeOptions: TemplateBuildOptions,
@@ -825,7 +948,7 @@ function normalizeStaticTemplateBuildArgs(
 function assertNoHighLevelGatewayConfig(source: Record<string, unknown>): void {
   for (const key of ["baseUrl", "apiKey", "projectId", "domain"]) {
     if (source[key] !== undefined) {
-      throw new ConfigurationError(`${key} is not supported on high-level Template helpers; use E2B_DOMAIN/E2B_API_KEY env vars`);
+      throw new ConfigurationError(`${key} is not supported on high-level Template helpers; use SEACLOUD_BASE_URL/SEACLOUD_API_KEY env vars`);
     }
   }
 }
@@ -853,11 +976,50 @@ function normalizeTemplateItems(values: string | string[], label: string): strin
   return items;
 }
 
+function normalizeTemplateTagInput(values: string | string[]): string[] {
+  const tags = dedupeTemplateTags(normalizeTemplateItems(values, "tags"));
+  if (tags.length === 0) {
+    throw new ValidationError("tags are required");
+  }
+  return tags;
+}
+
 function normalizeOptionalTemplateItems(values?: string | string[]): string[] {
   if (values === undefined) {
     return [];
   }
   return normalizeTemplateItems(values, "value");
+}
+
+function splitTemplateNameAndTags(name: string): [string, string[]] {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return ["", []];
+  }
+  const separator = trimmed.indexOf(":");
+  if (separator < 0 || separator !== trimmed.lastIndexOf(":")) {
+    return [trimmed, []];
+  }
+  const base = trimmed.slice(0, separator).trim();
+  const tag = trimmed.slice(separator + 1).trim();
+  if (!base || !tag) {
+    return [trimmed, []];
+  }
+  return [base, [tag]];
+}
+
+function dedupeTemplateTags(tags: string[]): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const rawTag of tags) {
+    const tag = rawTag.trim();
+    if (!tag || seen.has(tag)) {
+      continue;
+    }
+    seen.add(tag);
+    normalized.push(tag);
+  }
+  return normalized;
 }
 
 function buildAptInstallCommand(

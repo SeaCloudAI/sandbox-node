@@ -1,16 +1,3 @@
-export interface DirectBuildRequest {
-  project: string;
-  image: string;
-  tag: string;
-  dockerfile: string;
-}
-
-export interface DirectBuildResponse {
-  templateID: string;
-  buildID: string;
-  imageFullName: string;
-}
-
 export interface TemplateVolumeMount {
   name: string;
   path: string;
@@ -37,7 +24,6 @@ export interface TemplateExtensions {
   projectID?: string;
   ttlSeconds?: number;
   port?: number;
-  runtimeMode?: string;
   startCmd?: string;
   readyCmd?: string;
 }
@@ -51,7 +37,7 @@ export interface TemplateCreateRequest {
 }
 
 export interface TemplateUpdateRequest {
-  extensions?: PublicTemplateExtensions;
+  public?: boolean;
 }
 
 export interface TemplateCreateResponse {
@@ -69,7 +55,6 @@ export interface TemplateUpdateResponse {
 
 export interface ListTemplatesParams {
   visibility?: string;
-  teamID?: string;
   limit?: number;
   offset?: number;
 }
@@ -154,6 +139,7 @@ export interface TemplateResponse {
   public: boolean;
   aliases: string[];
   names: string[];
+  tags?: string[];
   createdBy?: TemplateUser | null;
   createdAt: string;
   updatedAt: string;
@@ -162,7 +148,6 @@ export interface TemplateResponse {
   buildCount?: number;
   envdVersion?: string;
   builds?: TemplateBuild[];
-  nextToken?: string;
   type?: string;
   version?: string;
   name?: string;
@@ -203,7 +188,6 @@ export interface TemplateResponse {
   probeTimeoutSecs?: number;
   gatewayURL?: string;
   heartbeatIntervalSecs?: number;
-  runtimeMode?: string;
   startCmd?: string;
   readyCmd?: string;
   extensions?: TemplateExtensions;
@@ -242,8 +226,6 @@ export interface BuildRequest {
   fromImageRegistry?: RegistryConfig;
   force?: boolean;
   steps?: BuildStep[];
-  filesHash?: string;
-  runtimeMode?: string;
   startCmd?: string;
   readyCmd?: string;
 }
@@ -284,8 +266,6 @@ export interface BuildStatusResponse {
   logs: string[];
   logEntries: BuildLogEntry[];
   reason: unknown;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface BuildLogsParams {
@@ -298,4 +278,25 @@ export interface BuildLogsParams {
 
 export interface BuildLogsResponse {
   logs: BuildLogEntry[];
+}
+
+export interface AssignTemplateTagsRequest {
+  target: string;
+  tags: string[];
+}
+
+export interface AssignedTemplateTags {
+  tags: string[];
+  buildID: string;
+}
+
+export interface DeleteTemplateTagsRequest {
+  name: string;
+  tags: string[];
+}
+
+export interface TemplateTag {
+  tag: string;
+  buildID: string;
+  createdAt: string;
 }

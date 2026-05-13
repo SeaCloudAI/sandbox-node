@@ -8,22 +8,44 @@ npm run build
 
 Shared env:
 
-- `E2B_DOMAIN`
-- `E2B_API_KEY`
+- `SEACLOUD_BASE_URL`
+- `SEACLOUD_API_KEY`
 
-Before running any example, export these variables once in your shell. Use the gateway entrypoint documented in the root `README.md`.
+Before running any example, export these variables once in your shell. Use the gateway entrypoint documented in the package `README.md`.
 
-Example-specific inputs intentionally use the `SANDBOX_EXAMPLE_*` prefix so they do not collide with the production-oriented variables shown in the package root `README.md`.
+Example-specific inputs intentionally use the `SANDBOX_EXAMPLE_*` prefix so they do not collide with the production-oriented variables shown in the package `README.md`.
 Examples focus on the stable lifecycle, template, command, and PTY flows. Watcher APIs are covered in tests instead, because some sandbox filesystem layouts reject them entirely.
 
 Recommended reading order:
 
-1. `code-interpreter.mjs`: default Python context -> explicit Python context -> non-Python stateless `context`
-2. `full-workflow.mjs`: pure high-level facade flow -> create a template -> trigger an E2B-style build -> wait for build -> start sandbox -> connect runtime -> run -> logs/metrics -> cleanup
-3. `template-features.mjs`: `fromDockerfile` -> local `copy(..., { mode, resolveSymlinks, user })` -> `Template.buildInBackground()` -> `Template.getBuildStatus()` -> existence/detail
-4. `control-sandbox.mjs`: `Sandbox.create()` -> reload -> cleanup
-5. `cmd-smoke.mjs`: `Sandbox.create()` -> `files` / `commands` modules
-6. `build-template.mjs`: minimal `Template.build()`
+1. `zero-to-one.mjs`: env setup -> official templates -> lifecycle -> command/files -> frontend URL -> local-code template build
+2. `code-interpreter.mjs`: default Python context -> explicit Python context -> non-Python stateless `context`
+3. `full-workflow.mjs`: pure high-level facade flow -> create a template -> trigger an E2B-style build -> wait for build -> start sandbox -> connect runtime -> run -> logs/metrics -> cleanup
+4. `template-features.mjs`: `fromDockerfile` -> local `copy(..., { mode, resolveSymlinks, user })` -> `Template.buildInBackground()` -> `Template.getBuildStatus()` -> existence/detail
+5. `control-sandbox.mjs`: `Sandbox.create()` -> reload -> cleanup
+6. `cmd-smoke.mjs`: `Sandbox.create()` -> `files` / `commands` modules
+7. `build-template.mjs`: minimal `Template.build()`
+
+## Zero To One
+
+This is the tutorial-style example for first-time users:
+
+- create a `base` sandbox and run basic file/command operations
+- pause and resume the sandbox to show lifecycle management
+- create a `code-interpreter` sandbox and run Python code
+- deploy a tiny static frontend inside a sandbox and print the public proxy URL from `getHost(3000)`
+- build a new template by uploading local frontend files with `Template.copy(...)`
+
+Optional env:
+
+- `SANDBOX_EXAMPLE_BASE_TEMPLATE=base`
+- `SANDBOX_EXAMPLE_CODE_TEMPLATE=code-interpreter`
+- `SANDBOX_EXAMPLE_FRONTEND_TEMPLATE=code-interpreter`
+- `SANDBOX_EXAMPLE_KEEP_RESOURCES=1`
+
+```bash
+node examples/zero-to-one.mjs
+```
 
 ## Code Interpreter
 
@@ -31,7 +53,7 @@ This example focuses on the E2B-style code interpreter facade:
 
 - repeated `sandbox.runCode(...)` calls sharing the default Python context
 - explicit stateful Python contexts with `createCodeContext(...)`
-- non-Python contexts acting as reusable execution profiles for `language`, `cwd`, and `timeout`
+- non-Python contexts acting as reusable execution profiles for `language`, `cwd`, and `timeoutMs`
 - requires a template that actually bundles the code-interpreter environment; `base` is not enough
 
 Required env:

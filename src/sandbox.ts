@@ -46,12 +46,22 @@ class BoundSandbox {
     return this.#client.getSandbox(this.data().sandboxID);
   }
 
+  async getFullInfo(): Promise<SandboxDetailInstance> {
+    return this.#client.getSandbox(this.data().sandboxID);
+  }
+
   async logs(params: SandboxLogsParams = {}): Promise<SandboxLogsResponse> {
     return this.#client.getSandboxLogs(this.data().sandboxID, params);
   }
 
-  async pause(): Promise<void> {
+  async pause(): Promise<boolean> {
+    const target = this.data();
+    if ([target.state, target.status].some((value) => value?.toLowerCase() === "paused")) {
+      return false;
+    }
     await this.#client.pauseSandbox(this.data().sandboxID);
+    Object.assign(this as object, { state: "paused", status: "paused" });
+    return true;
   }
 
   async delete(): Promise<void> {

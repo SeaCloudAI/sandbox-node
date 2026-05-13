@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 This project follows Semantic Versioning for public SDK APIs.
 
+## [0.3.0] - 2026-05-13
+
+### Added
+
+- Added E2B-style high-level aliases and callbacks: `trafficAccessToken`, `CommandHandle.sendInput(...)`, PTY `sendInput(...)`, and output callbacks on command/PTY reconnect.
+- Added per-call lifecycle `requestTimeoutMs` forwarding on high-level sandbox helpers.
+
+### Changed
+
+- Renamed SDK environment configuration to `SEACLOUD_BASE_URL` / `SEACLOUD_API_KEY` and removed project-id environment lookup.
+
 ## [0.2.0] - 2026-05-11
 
 ### Changed

@@ -27,37 +27,6 @@ test("unit: build system endpoints", async (t) => {
     const response = await service.metrics();
     assert.equal(response, "metric 1\n");
   });
-
-  await t.test("direct build sends authenticated headers", async () => {
-    const service = createService(async (input, init) => {
-      assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/build");
-      const headers = new Headers(init.headers);
-      assert.equal(headers.get("X-Namespace-ID"), null);
-      assert.equal(headers.get("Authorization"), "Bearer unit-auth-value");
-      assert.equal(headers.get("X-API-Key"), "unit-auth-value");
-      assert.equal(headers.get("X-Project-ID"), "project-1");
-      assert.equal(headers.get("Content-Type"), "application/json");
-      assert.deepEqual(JSON.parse(init.body), {
-        project: "proj",
-        image: "app",
-        tag: "v1",
-        dockerfile: "FROM alpine:3.20",
-      });
-      return jsonResponse(202, {
-        templateID: "tpl-1",
-        buildID: "build-1",
-        imageFullName: "example-image:v1",
-      });
-    });
-
-    const response = await service.directBuild({
-      project: "proj",
-      image: "app",
-      tag: "v1",
-      dockerfile: "FROM alpine:3.20",
-    });
-    assert.equal(response.templateID, "tpl-1");
-  });
 });
 
 test("unit: build template endpoints", async (t) => {
@@ -86,7 +55,7 @@ test("unit: build template endpoints", async (t) => {
       }
       if (url.pathname === "/api/v1/templates" && init.method === "GET") {
         assert.equal(url.searchParams.get("visibility"), "team");
-        assert.equal(url.searchParams.get("teamID"), "team-1");
+        assert.equal(url.searchParams.has("teamID"), false);
         assert.equal(url.searchParams.get("limit"), "20");
         assert.equal(url.searchParams.get("offset"), "40");
         return jsonResponse(200, []);
@@ -134,10 +103,12 @@ test("unit: build template endpoints", async (t) => {
             diskSizeMB: 5120,
             envdVersion: "sandbox-builder-v1",
           }],
-          nextToken: "build-next",
         });
       }
       if (url.pathname === "/api/v1/templates/tpl-1" && init.method === "PATCH") {
+        assert.deepEqual(JSON.parse(init.body), {
+          public: false,
+        });
         return jsonResponse(200, { names: ["user/demo-2"] });
       }
       if (url.pathname === "/api/v1/templates/tpl-1" && init.method === "DELETE") {
@@ -154,7 +125,6 @@ test("unit: build template endpoints", async (t) => {
     });
     const listed = await service.listTemplates({
       visibility: "team",
-      teamID: "team-1",
       limit: 20,
       offset: 40,
     });
@@ -165,7 +135,7 @@ test("unit: build template endpoints", async (t) => {
       nextToken: "build-1",
     });
     const updated = await service.updateTemplate("tpl-1", {
-      extensions: { envs: { SDK_TEST: "1" } },
+      public: false,
     });
     await service.deleteTemplate("tpl-1");
 
@@ -185,7 +155,6 @@ test("unit: build template endpoints", async (t) => {
     assert.equal(detail.cloudsinkURL, "https://cloudsink.internal");
     assert.equal(detail.builds[0].status, "ready");
     assert.equal(detail.builds[0].memoryMB, 1024);
-    assert.equal(detail.nextToken, "build-next");
     assert.deepEqual(updated.names, ["user/demo-2"]);
     assert.equal(calls.at(-1).method, "DELETE");
   });
@@ -208,7 +177,6 @@ test("unit: template build builder encodes requests", async (t) => {
       .user("node")
       .startCmd("npm start")
       .readyCmd("test-ready-command")
-      .filesHash("b".repeat(64))
       .toRequest();
 
     assert.equal(request.fromImage, "docker.io/library/node:20");
@@ -274,7 +242,6 @@ test("unit: build request encoding and validation", async (t) => {
     const service = createService(async (_input, init) => {
       assert.deepEqual(JSON.parse(init.body), {
         fromImage: "docker.io/library/node:20",
-        filesHash: "a".repeat(64),
         fromImageRegistry: {
           type: "registry",
           username: "robot",
@@ -293,7 +260,6 @@ test("unit: build request encoding and validation", async (t) => {
 
     const response = await service.createBuild("tpl-1", "build-encoded", {
       fromImage: "docker.io/library/node:20",
-      filesHash: "a".repeat(64),
       fromImageRegistry: {
         type: "registry",
         username: "robot",
@@ -495,11 +461,7 @@ test("unit: build request encoding and validation", async (t) => {
     );
     await assert.doesNotReject(
       updateAcceptingService.updateTemplate("tpl-1", {
-        extensions: {
-          baseTemplateID: "tpl-base-2",
-          storageType: "persistent",
-          volumeMounts: [{ name: "cache", path: "/cache" }],
-        },
+        public: false,
       }),
     );
     await assert.rejects(
@@ -508,7 +470,7 @@ test("unit: build request encoding and validation", async (t) => {
           visibility: "official",
         },
       }),
-      /extensions\.visibility=official is not supported by the public SDK/,
+      /template field extensions is not supported by the public SDK/,
     );
     await assert.rejects(
       service.createTemplate({

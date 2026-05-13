@@ -6,7 +6,7 @@ import { Template } from "../dist/index.js";
 
 const TERMINAL_BUILD_STATUSES = new Set(["ready", "failed", "error", "cancelled"]);
 
-mustEnv("E2B_API_KEY");
+mustEnv("SEACLOUD_API_KEY");
 const image = (process.env.SANDBOX_EXAMPLE_BUILD_IMAGE ?? "").trim() || "docker.io/library/alpine:3.20";
 const keepResources = envEnabled("SANDBOX_EXAMPLE_KEEP_RESOURCES");
 

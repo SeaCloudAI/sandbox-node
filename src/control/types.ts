@@ -6,11 +6,20 @@ export interface VolumeMount {
 }
 
 export interface NewSandboxRequest {
-  templateID?: string;
+  templateID: string;
   timeout?: number;
+  autoPause?: boolean;
   metadata?: Record<string, string>;
   envVars?: Record<string, string>;
   waitReady?: boolean;
+}
+
+export interface ControlRequestOptions {
+  requestTimeoutMs?: number;
+}
+
+export interface SandboxLifecycle {
+  onTimeout: "kill" | "pause";
 }
 
 export interface Sandbox {
@@ -18,10 +27,8 @@ export interface Sandbox {
   sandboxID: string;
   alias?: string;
   clientID: string;
-  envdVersion: string;
   envdAccessToken: string | null;
   envdUrl: string | null;
-  trafficAccessToken: string | null;
   namespace?: string;
   status: string;
   state?: string;
@@ -37,7 +44,6 @@ export interface SandboxDetail {
   clientID: string;
   startedAt: string;
   endAt: string;
-  envdVersion: string;
   envdAccessToken: string | null;
   envdUrl: string | null;
   cpuCount: number;
@@ -46,6 +52,7 @@ export interface SandboxDetail {
   metadata?: Record<string, string>;
   status: string;
   state?: string;
+  lifecycle: SandboxLifecycle;
   volumeMounts?: VolumeMount[];
   namespace?: string;
   activatedAt?: string | null;
@@ -64,7 +71,6 @@ export interface ListedSandbox {
   metadata?: Record<string, string>;
   status: string;
   state?: string;
-  envdVersion: string;
   volumeMounts?: VolumeMount[];
   activatedAt?: string | null;
 }

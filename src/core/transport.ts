@@ -69,8 +69,8 @@ export class BaseTransport {
     return merged;
   }
 
-  protected async request(path: string, init: RequestInit = {}): Promise<Response> {
-    const requestState = createRequestState(init.signal, this.timeoutMs);
+  protected async request(path: string, init: RequestInit = {}, requestTimeoutMs?: number): Promise<Response> {
+    const requestState = createRequestState(init.signal, normalizeTimeoutMs(requestTimeoutMs) ?? this.timeoutMs);
 
     try {
       return await this.fetchImpl(this.buildUrl(path), {
@@ -92,8 +92,9 @@ export class BaseTransport {
     path: string,
     init: RequestInit = {},
     expectedStatuses: number[] = [200],
+    requestTimeoutMs?: number,
   ): Promise<T> {
-    const response = await this.request(path, init);
+    const response = await this.request(path, init, requestTimeoutMs);
     if (!expectedStatuses.includes(response.status)) {
       throw await APIError.fromResponse(response);
     }
@@ -104,8 +105,9 @@ export class BaseTransport {
     path: string,
     init: RequestInit,
     expectedStatuses: number[],
+    requestTimeoutMs?: number,
   ): Promise<void> {
-    const response = await this.request(path, init);
+    const response = await this.request(path, init, requestTimeoutMs);
     if (!expectedStatuses.includes(response.status)) {
       throw await APIError.fromResponse(response);
     }

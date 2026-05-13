@@ -1,6 +1,8 @@
 import { ValidationError } from "../core/errors.js";
 import { BaseTransport } from "../core/transport.js";
 import type {
+  AssignedTemplateTags,
+  AssignTemplateTagsRequest,
   BuildHistoryResponse,
   BuildLogsParams,
   BuildLogsResponse,
@@ -9,8 +11,7 @@ import type {
   BuildStatusParams,
   BuildStatusResponse,
   BuildTriggerResponse,
-  DirectBuildRequest,
-  DirectBuildResponse,
+  DeleteTemplateTagsRequest,
   FilePresenceResponse,
   GetTemplateParams,
   ListTemplatesParams,
@@ -20,6 +21,7 @@ import type {
   TemplateCreateRequest,
   TemplateCreateResponse,
   TemplateResponse,
+  TemplateTag,
   TemplateUpdateRequest,
   TemplateUpdateResponse,
 } from "./types.js";
@@ -35,7 +37,7 @@ const TEMPLATE_CREATE_FIELDS = new Set([
 ]);
 
 const TEMPLATE_UPDATE_FIELDS = new Set([
-  "extensions",
+  "public",
 ]);
 const BUILD_REQUEST_FIELDS = new Set([
   "fromTemplate",
@@ -43,8 +45,6 @@ const BUILD_REQUEST_FIELDS = new Set([
   "fromImageRegistry",
   "force",
   "steps",
-  "filesHash",
-  "runtimeMode",
   "startCmd",
   "readyCmd",
 ]);
@@ -56,21 +56,6 @@ export class SandboxBuildService extends BaseTransport {
 
   async metrics(): Promise<string> {
     return super.metrics();
-  }
-
-  async directBuild(body: DirectBuildRequest): Promise<DirectBuildResponse> {
-    if (!body) {
-      throw new ValidationError("direct build request is required");
-    }
-    return this.requestJson<DirectBuildResponse>(
-      "/build",
-      {
-        method: "POST",
-        headers: this.buildHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify(body),
-      },
-      [202],
-    );
   }
 
   async createTemplate(body: TemplateCreateRequest = {}): Promise<TemplateCreateResponse> {
@@ -247,6 +232,40 @@ export class SandboxBuildService extends BaseTransport {
     return this.requestJson<BuildLogsResponse>(path, { method: "GET" });
   }
 
+  async assignTemplateTags(body: AssignTemplateTagsRequest): Promise<AssignedTemplateTags> {
+    this.validateAssignTemplateTagsBody(body);
+    return this.requestJson<AssignedTemplateTags>(
+      "/api/v1/templates/tags",
+      {
+        method: "POST",
+        headers: this.buildJSONHeaders(),
+        body: JSON.stringify(body),
+      },
+      [201],
+    );
+  }
+
+  async deleteTemplateTags(body: DeleteTemplateTagsRequest): Promise<void> {
+    this.validateDeleteTemplateTagsBody(body);
+    await this.requestEmpty(
+      "/api/v1/templates/tags",
+      {
+        method: "DELETE",
+        headers: this.buildJSONHeaders(),
+        body: JSON.stringify(body),
+      },
+      [204],
+    );
+  }
+
+  async listTemplateTags(templateID: string): Promise<TemplateTag[]> {
+    this.requireTemplateID(templateID);
+    return this.requestJson<TemplateTag[]>(
+      `/api/v1/templates/${encodeURIComponent(templateID)}/tags`,
+      { method: "GET" },
+    );
+  }
+
   private buildJSONHeaders(): Headers {
     return this.buildHeaders({ "Content-Type": "application/json" });
   }
@@ -313,8 +332,28 @@ export class SandboxBuildService extends BaseTransport {
         throw new ValidationError(`template field ${key} is not supported by the public SDK`);
       }
     }
-    if (payload.extensions !== undefined) {
-      validateTemplateExtensions(payload.extensions);
+    if (payload.public !== undefined && typeof payload.public !== "boolean") {
+      throw new ValidationError("public must be a boolean");
+    }
+  }
+
+  private validateAssignTemplateTagsBody(body: AssignTemplateTagsRequest): void {
+    if (!body?.target?.trim()) {
+      throw new ValidationError("target is required");
+    }
+    this.validateTags(body.tags);
+  }
+
+  private validateDeleteTemplateTagsBody(body: DeleteTemplateTagsRequest): void {
+    if (!body?.name?.trim()) {
+      throw new ValidationError("name is required");
+    }
+    this.validateTags(body.tags);
+  }
+
+  private validateTags(tags: string[]): void {
+    if (!Array.isArray(tags) || tags.map((tag) => tag.trim()).filter(Boolean).length === 0) {
+      throw new ValidationError("tags are required");
     }
   }
 
@@ -329,12 +368,6 @@ export class SandboxBuildService extends BaseTransport {
     }
     if (Object.prototype.hasOwnProperty.call(body, "buildID")) {
       throw new ValidationError("buildID must be provided in the createBuild path, not in body");
-    }
-    if (body.filesHash !== undefined && !SHA256_RE.test(body.filesHash)) {
-      throw new ValidationError("filesHash must be a 64-character lowercase hex SHA256");
-    }
-    if (body.runtimeMode !== undefined && body.runtimeMode !== "managed" && body.runtimeMode !== "plain") {
-      throw new ValidationError('runtimeMode must be "managed" or "plain"');
     }
     if (body.force !== undefined && typeof body.force !== "boolean") {
       throw new ValidationError("force must be a boolean");
@@ -459,9 +492,6 @@ function encodeListTemplatesParams(params: ListTemplatesParams): URLSearchParams
   if (params.visibility?.trim()) {
     query.set("visibility", params.visibility.trim());
   }
-  if (params.teamID?.trim()) {
-    query.set("teamID", params.teamID.trim());
-  }
   if (params.limit !== undefined) {
     query.set("limit", String(params.limit));
   }
@@ -522,7 +552,6 @@ function isEmptyBuildRequest(body: BuildRequest): boolean {
     && body.fromImageRegistry === undefined
     && body.force === undefined
     && (body.steps?.length ?? 0) === 0
-    && !body.filesHash?.trim()
     && !body.startCmd?.trim()
     && !body.readyCmd?.trim();
 }

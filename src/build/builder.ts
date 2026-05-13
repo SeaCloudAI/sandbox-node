@@ -88,11 +88,6 @@ export class TemplateBuildBuilder {
     return this;
   }
 
-  filesHash(filesHash: string): this {
-    this.request.filesHash = filesHash;
-    return this;
-  }
-
   toRequest(): BuildRequest {
     return {
       ...this.request,

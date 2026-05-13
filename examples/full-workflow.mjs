@@ -4,7 +4,7 @@ import {
   defaultBuildLogger,
 } from "../dist/index.js";
 
-mustEnv("E2B_API_KEY");
+mustEnv("SEACLOUD_API_KEY");
 const runtimeBaseImage = mustEnv("SANDBOX_EXAMPLE_RUNTIME_BASE_IMAGE");
 const keepResources = envEnabled("SANDBOX_EXAMPLE_KEEP_RESOURCES");
 

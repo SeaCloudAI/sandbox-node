@@ -79,27 +79,35 @@ test("unit: sandbox request encoding", async (t) => {
     assert.equal(response.runtime.baseUrl, "https://sandbox-gateway.cloud.seaart.ai");
   });
 
-  await t.test("create sandbox allows missing templateID", async () => {
+  await t.test("create sandbox requires templateID", async () => {
+    const rejectingClient = createProjectGatewayClient(async () => {
+      throw new Error("createSandbox should validate templateID before sending");
+    });
+    await assert.rejects(
+      () => rejectingClient.createSandbox({ templateID: "", waitReady: false }),
+      ValidationError,
+    );
+
     const client = createProjectGatewayClient(async (input, init) => {
       assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes");
-      assert.deepEqual(JSON.parse(init.body), { waitReady: false });
+      assert.deepEqual(JSON.parse(init.body), { templateID: "tpl", waitReady: false });
       return jsonResponse(201, { sandboxID: "sb-2" });
     });
 
-    const response = await client.createSandbox({ waitReady: false });
+    const response = await client.createSandbox({ templateID: "tpl", waitReady: false });
     assert.equal(response.sandboxID, "sb-2");
   });
 
-  await t.test("client options fall back to E2B_API_KEY", async () => {
-    const previous = process.env.E2B_API_KEY;
-    process.env.E2B_API_KEY = "unit-auth-from-e2b";
+  await t.test("client options fall back to SEACLOUD_API_KEY", async () => {
+    const previous = process.env.SEACLOUD_API_KEY;
+    process.env.SEACLOUD_API_KEY = "unit-auth-value";
     try {
       const client = new GatewayClient({
         baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
         fetch: async (_input, init) => {
           const headers = new Headers(init.headers);
-          assert.equal(headers.get("Authorization"), "Bearer unit-auth-from-e2b");
-          assert.equal(headers.get("X-API-Key"), "unit-auth-from-e2b");
+          assert.equal(headers.get("Authorization"), "Bearer unit-auth-value");
+          assert.equal(headers.get("X-API-Key"), "unit-auth-value");
           return jsonResponse(200, []);
         },
       });
@@ -108,56 +116,42 @@ test("unit: sandbox request encoding", async (t) => {
       assert.equal(Array.isArray(response), true);
     } finally {
       if (previous === undefined) {
-        delete process.env.E2B_API_KEY;
+        delete process.env.SEACLOUD_API_KEY;
       } else {
-        process.env.E2B_API_KEY = previous;
+        process.env.SEACLOUD_API_KEY = previous;
       }
     }
   });
 
-  await t.test("SeaCloud compatibility env vars are ignored for gateway config", async () => {
-    const previousE2BAPIKey = process.env.E2B_API_KEY;
-    const previousSeaCloudAPIKey = process.env.SEACLOUD_API_KEY;
-    const previousE2BDomain = process.env.E2B_DOMAIN;
-    const previousSeaCloudBaseUrl = process.env.SEACLOUD_BASE_URL;
-    process.env.E2B_API_KEY = "unit-auth-from-e2b";
-    process.env.SEACLOUD_API_KEY = "unit-auth-from-seacloud";
-    process.env.E2B_DOMAIN = "e2b.example.test";
-    process.env.SEACLOUD_BASE_URL = "https://seacloud.example.test";
+  await t.test("client options fall back to SEACLOUD_BASE_URL", async () => {
+    const previousBaseUrl = process.env.SEACLOUD_BASE_URL;
+    const previousApiKey = process.env.SEACLOUD_API_KEY;
+    process.env.SEACLOUD_BASE_URL = "seacloud.example.test";
+    process.env.SEACLOUD_API_KEY = "unit-auth-value";
     try {
       const client = new GatewayClient({
         fetch: async (input, init) => {
           const headers = new Headers(init.headers);
-          assert.equal(String(input).startsWith("https://e2b.example.test/"), true);
-          assert.equal(headers.get("Authorization"), "Bearer unit-auth-from-e2b");
-          assert.equal(headers.get("X-API-Key"), "unit-auth-from-e2b");
+          assert.equal(String(input).startsWith("https://seacloud.example.test/"), true);
+          assert.equal(headers.get("Authorization"), "Bearer unit-auth-value");
+          assert.equal(headers.get("X-API-Key"), "unit-auth-value");
           return jsonResponse(200, []);
         },
       });
 
       const response = await client.listSandboxes();
       assert.equal(Array.isArray(response), true);
-      assert.equal(client.baseUrl, "https://e2b.example.test");
+      assert.equal(client.baseUrl, "https://seacloud.example.test");
     } finally {
-      if (previousE2BAPIKey === undefined) {
-        delete process.env.E2B_API_KEY;
-      } else {
-        process.env.E2B_API_KEY = previousE2BAPIKey;
-      }
-      if (previousSeaCloudAPIKey === undefined) {
-        delete process.env.SEACLOUD_API_KEY;
-      } else {
-        process.env.SEACLOUD_API_KEY = previousSeaCloudAPIKey;
-      }
-      if (previousE2BDomain === undefined) {
-        delete process.env.E2B_DOMAIN;
-      } else {
-        process.env.E2B_DOMAIN = previousE2BDomain;
-      }
-      if (previousSeaCloudBaseUrl === undefined) {
+      if (previousBaseUrl === undefined) {
         delete process.env.SEACLOUD_BASE_URL;
       } else {
-        process.env.SEACLOUD_BASE_URL = previousSeaCloudBaseUrl;
+        process.env.SEACLOUD_BASE_URL = previousBaseUrl;
+      }
+      if (previousApiKey === undefined) {
+        delete process.env.SEACLOUD_API_KEY;
+      } else {
+        process.env.SEACLOUD_API_KEY = previousApiKey;
       }
     }
   });
@@ -412,7 +406,7 @@ test("unit: sandbox request encoding", async (t) => {
 
     assert.equal(sandbox.sandboxId, "sb-high");
     assert.equal(typeof sandbox.getHost(3000), "string");
-    assert.equal(info.sandboxID, "sb-high");
+    assert.equal(info.sandboxId, "sb-high");
     assert.deepEqual(calls[0].body, { templateID: "tpl", waitReady: true });
     assert.equal(calls[1].url, "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes/sb-high");
   });
@@ -426,7 +420,7 @@ test("unit: sandbox request encoding", async (t) => {
       }
       if (String(input).endsWith("/api/v1/sandboxes")) {
         if (init.method === "GET") {
-          return jsonResponse(200, [{ sandboxID: "sb-1", clientID: "u1", envdVersion: "v1", status: "running" }]);
+          return jsonResponse(200, [{ sandboxID: "sb-1", clientID: "u1", status: "running" }]);
         }
         return jsonResponse(201, {
           sandboxID: "sb-1",
@@ -493,14 +487,14 @@ test("unit: validations and errors", async (t) => {
       search: "x".repeat(256),
     });
     await boundaryClient.connectSandbox("sb", { timeout: 0 });
-    await boundaryClient.setSandboxTimeout("sb", { timeout: 86400 });
+    await boundaryClient.setSandboxTimeout("sb", { timeout: 86_400 });
     await boundaryClient.refreshSandbox("sb", { duration: 0 });
     await boundaryClient.refreshSandbox("sb", { duration: 3600 });
     await boundaryClient.sendHeartbeat("sb", { status: "healthy" });
 
     assert.equal(calls.length, 6);
     assert.deepEqual(calls.find((call) => call.url.endsWith("/connect"))?.body, { timeout: 0 });
-    assert.deepEqual(calls.find((call) => call.url.endsWith("/timeout"))?.body, { timeout: 86400 });
+    assert.deepEqual(calls.find((call) => call.url.endsWith("/timeout"))?.body, { timeout: 86_400 });
   });
 
   await t.test("timeout, refresh and heartbeat validations reject bad params", async () => {
@@ -509,7 +503,7 @@ test("unit: validations and errors", async (t) => {
       ValidationError,
     );
     await assert.rejects(
-      client.setSandboxTimeout("sb", { timeout: 86401 }),
+      client.setSandboxTimeout("sb", { timeout: 86_401 }),
       ValidationError,
     );
     await assert.rejects(

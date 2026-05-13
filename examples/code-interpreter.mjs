@@ -1,6 +1,6 @@
 import { Sandbox } from "../dist/index.js";
 
-mustEnv("E2B_API_KEY");
+mustEnv("SEACLOUD_API_KEY");
 const templateID = mustEnv("SANDBOX_EXAMPLE_TEMPLATE_ID");
 const keepResources = envEnabled("SANDBOX_EXAMPLE_KEEP_RESOURCES");
 if (looksLikeBaseTemplate(templateID)) {
@@ -23,7 +23,7 @@ try {
   const pythonContext = await sandbox.createCodeContext({
     language: "python",
     cwd: "/workspace",
-    timeout: 30,
+    timeoutMs: 30_000,
   });
   await sandbox.runCode("name = 'node-sdk'", { context: pythonContext });
   const pythonIsolated = await sandbox.runCode("name.upper()", { context: pythonContext });
@@ -32,7 +32,7 @@ try {
   const bashContext = await sandbox.createCodeContext({
     language: "bash",
     cwd: "/workspace",
-    timeout: 10,
+    timeoutMs: 10_000,
   });
   const bashRun = await sandbox.runCode("pwd && echo bash-ok", { context: bashContext });
   console.log("bash profile output:", JSON.stringify(bashRun.logs.stdout));

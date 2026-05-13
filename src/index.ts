@@ -3,12 +3,13 @@ export { SandboxRuntime } from "./runtime.js";
 export { TemplateBuildBuilder, templateBuild } from "./build/index.js";
 export { CodeContext, CodeExecution, PythonCodeContextManager, runCodeWithRuntime } from "./code-interpreter.js";
 export { Sandbox } from "./sandbox-facade.js";
+export { createTemplate as Template } from "./template.js";
 export {
   LogEntry,
   LogEntryEnd,
   LogEntryStart,
   ReadyCmd,
-  Template,
+  Template as TemplateClass,
   defaultBuildLogger,
   waitForFile,
   waitForPort,
@@ -33,13 +34,24 @@ export type {
 } from "./code-interpreter.js";
 export type {
   CommandResult,
+  CommandConnectOptions,
   CommandStartOptions,
+  EntryInfo,
+  FileType,
+  FilesystemEvent,
+  FilesystemEventType,
+  FilesystemListOptions,
+  FilesystemRequestOptions,
   GitCloneOptions as SandboxGitCloneOptions,
   GitCommandOptions,
   PtyCreateOptions,
   SandboxConnectOptions,
   SandboxCreateOptions,
+  SandboxInfo,
   SandboxListOptions,
+  SandboxUrlOptions,
+  WatchHandle,
+  WatchDirOptions,
   WriteFileInput,
   WriteInfo,
 } from "./sandbox-facade.js";

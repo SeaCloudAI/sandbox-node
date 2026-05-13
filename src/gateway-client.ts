@@ -1,5 +1,6 @@
 import type {
   ConnectSandboxRequest,
+  ControlRequestOptions,
   ListSandboxesParams,
   ListedSandbox,
   Sandbox as ControlSandbox,
@@ -20,6 +21,7 @@ import { ConfigurationError } from "./core/errors.js";
 import { SandboxRuntime } from "./runtime.js";
 import {
   Sandbox as SandboxFacade,
+  SandboxPaginator,
   type SandboxConnectOptions,
   type SandboxCreateOptions,
   type SandboxListOptions,
@@ -34,21 +36,27 @@ import {
   type SandboxInstance,
 } from "./sandbox.js";
 import {
+  assignTemplateTagsWithService,
   buildTemplateWithService,
   deleteTemplateWithService,
+  getTemplateTagsWithService,
   getTemplateBuildStatusWithService,
   getTemplateWithService,
   listTemplatesWithService,
+  removeTemplateTagsWithService,
   templateExistsWithService,
   type Template,
   type TemplateBuildInfo,
   type TemplateBuildStatusInfo,
   type TemplateBuildOptions,
   type TemplateGetBuildStatusOptions,
+  type TemplateTag,
+  type TemplateTagInfo,
 } from "./template.js";
 
 type SandboxCommandTarget = Pick<ControlSandbox | SandboxDetail, "envdUrl" | "envdAccessToken">;
 type BoundSandboxCreateOptions = Omit<SandboxCreateOptions, "fetch" | "requestTimeoutMs">;
+type BoundSandboxCreateOverrides = Omit<BoundSandboxCreateOptions, "template">;
 type BoundSandboxConnectOptions = Omit<SandboxConnectOptions, "fetch" | "requestTimeoutMs">;
 type BoundSandboxListOptions = Omit<SandboxListOptions, "fetch" | "requestTimeoutMs">;
 type BoundTemplateBuildOptions = Omit<TemplateBuildOptions, "fetch" | "requestTimeoutMs">;
@@ -65,24 +73,25 @@ export class GatewayClient extends SandboxControlService {
     this.#fetchImpl = options.fetch;
   }
 
-  override async createSandbox(body: NewSandboxRequest): Promise<SandboxInstance> {
-    return bindSandbox(this, await super.createSandbox(body));
+  override async createSandbox(body: NewSandboxRequest, options: ControlRequestOptions = {}): Promise<SandboxInstance> {
+    return bindSandbox(this, await super.createSandbox(body, options));
   }
 
-  override async getSandbox(sandboxID: string): Promise<SandboxDetailInstance> {
-    return bindSandboxDetail(this, await super.getSandbox(sandboxID));
+  override async getSandbox(sandboxID: string, options: ControlRequestOptions = {}): Promise<SandboxDetailInstance> {
+    return bindSandboxDetail(this, await super.getSandbox(sandboxID, options));
   }
 
-  override async listSandboxes(params: ListSandboxesParams = {}): Promise<ListedSandboxInstance[]> {
-    const sandboxes = await super.listSandboxes(params);
+  override async listSandboxes(params: ListSandboxesParams = {}, options: ControlRequestOptions = {}): Promise<ListedSandboxInstance[]> {
+    const sandboxes = await super.listSandboxes(params, options);
     return sandboxes.map((sandbox: ListedSandbox) => bindListedSandbox(this, sandbox));
   }
 
   override async connectSandbox(
     sandboxID: string,
     body: ConnectSandboxRequest,
+    options: ControlRequestOptions = {},
   ): Promise<BoundConnectSandboxResponse> {
-    const response = await super.connectSandbox(sandboxID, body);
+    const response = await super.connectSandbox(sandboxID, body, options);
     return {
       statusCode: response.statusCode,
       sandbox: bindSandbox(this, response.sandbox),
@@ -130,9 +139,11 @@ export class GatewayClient extends SandboxControlService {
     });
   }
 
+  async create(template: string, options?: BoundSandboxCreateOverrides): Promise<SandboxFacade>;
+  async create(options: BoundSandboxCreateOptions): Promise<SandboxFacade>;
   async create(
-    templateOrOptions: string | BoundSandboxCreateOptions = {},
-    maybeOptions: BoundSandboxCreateOptions = {},
+    templateOrOptions: string | BoundSandboxCreateOptions,
+    maybeOptions: BoundSandboxCreateOverrides = {},
   ): Promise<SandboxFacade> {
     const created = await this.createSandbox(normalizeCreateBody(templateOrOptions, maybeOptions));
     return new SandboxFacade(this, created);
@@ -140,14 +151,18 @@ export class GatewayClient extends SandboxControlService {
 
   async connect(
     sandboxID: string,
-    options: BoundSandboxConnectOptions = {},
+    options: BoundSandboxConnectOptions & ControlRequestOptions = {},
   ): Promise<SandboxFacade> {
-    const response = await this.connectSandbox(sandboxID, { timeout: normalizeConnectTimeoutSeconds(options.timeout) });
+    const response = await this.connectSandbox(
+      sandboxID,
+      { timeout: normalizeConnectTimeoutSeconds(options.timeout) },
+      { requestTimeoutMs: options.requestTimeoutMs },
+    );
     return new SandboxFacade(this, response.sandbox);
   }
 
-  async list(options: BoundSandboxListOptions = {}): Promise<ListedSandboxInstance[]> {
-    return this.listSandboxes(options);
+  list(options: BoundSandboxListOptions = {}): SandboxPaginator {
+    return new SandboxPaginator((params) => this.listSandboxes(params), options);
   }
 
   async buildTemplate(
@@ -190,14 +205,27 @@ export class GatewayClient extends SandboxControlService {
   async deleteTemplate(ref: string): Promise<void> {
     await deleteTemplateWithService(this.build, ref);
   }
+
+  async assignTemplateTags(targetName: string, tags: string | string[]): Promise<TemplateTagInfo> {
+    return assignTemplateTagsWithService(this.build, targetName, tags);
+  }
+
+  async getTemplateTags(templateId: string): Promise<TemplateTag[]> {
+    return getTemplateTagsWithService(this.build, templateId);
+  }
+
+  async removeTemplateTags(name: string, tags: string | string[]): Promise<void> {
+    await removeTemplateTagsWithService(this.build, name, tags);
+  }
 }
 
 function normalizeCreateBody(
   templateOrOptions: string | BoundSandboxCreateOptions,
-  maybeOptions: BoundSandboxCreateOptions,
+  maybeOptions: BoundSandboxCreateOverrides,
 ): {
-  templateID?: string;
+  templateID: string;
   timeout?: number;
+  autoPause?: boolean;
   metadata?: Record<string, string>;
   envVars?: Record<string, string>;
   waitReady?: boolean;
@@ -212,21 +240,35 @@ function normalizeCreateBody(
 function filterCreateBody(
   source: BoundSandboxCreateOptions,
 ): {
-  templateID?: string;
+  templateID: string;
   timeout?: number;
+  autoPause?: boolean;
   metadata?: Record<string, string>;
   envVars?: Record<string, string>;
   waitReady?: boolean;
 } {
+  rejectUnsupportedCreateFields(source as unknown as Record<string, unknown>);
   const templateID = typeof source.template === "string" && source.template.trim() ? source.template.trim() : undefined;
+  if (templateID === undefined) {
+    throw new ConfigurationError("templateID is required");
+  }
   const timeout = source.timeout === undefined ? undefined : normalizeLifecycleTimeoutSeconds(source.timeout);
   return {
     templateID,
     timeout,
+    autoPause: source.autoPause,
     metadata: source.metadata,
     envVars: source.envs,
     waitReady: source.waitReady,
   };
+}
+
+function rejectUnsupportedCreateFields(source: Record<string, unknown>): void {
+  for (const key of ["autoResume", "secure", "allow_internet_access", "network", "mcp", "volumeMounts"]) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      throw new ConfigurationError(`${key} is not supported`);
+    }
+  }
 }
 
 function normalizeTemplateBuildArgs(
@@ -250,5 +292,5 @@ function normalizeLifecycleTimeoutSeconds(timeout: number): number {
   if (!Number.isFinite(timeout) || timeout < 0) {
     throw new ConfigurationError("timeout must be a non-negative number");
   }
-  return Math.ceil(timeout);
+  return Math.floor(timeout);
 }

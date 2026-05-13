@@ -158,7 +158,7 @@ export interface RemoveWatcherRequest {
 
 export interface ProcessStartRequest {
   process: ProcessConfig;
-  timeout?: number | null;
+  timeoutMs?: number | null;
   tag?: string;
   stdin?: boolean;
   pty?: PtyConfig;
@@ -284,7 +284,7 @@ export interface AgentRunRequest {
   args?: string[];
   cwd?: string;
   env?: Record<string, string>;
-  timeout?: number;
+  timeoutMs?: number;
   stdin?: string;
 }
 

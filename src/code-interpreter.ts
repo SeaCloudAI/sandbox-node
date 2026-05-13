@@ -31,32 +31,32 @@ export interface CodeExecutionLogs {
 export interface CodeContextCreateOptions {
   cwd?: string;
   language?: string;
-  timeout?: number;
+  timeoutMs?: number;
 }
 
 export class CodeContext {
   readonly contextId: string;
   readonly cwd?: string;
   readonly language: string;
-  readonly timeout?: number;
+  readonly timeoutMs?: number;
 
   constructor(options: {
     contextId?: string;
     cwd?: string;
     language?: string;
-    timeout?: number;
+    timeoutMs?: number;
   } = {}) {
     this.contextId = options.contextId ?? randomUUID();
     this.cwd = options.cwd;
     this.language = normalizeLanguage(options.language);
-    this.timeout = options.timeout;
+    this.timeoutMs = options.timeoutMs;
   }
 }
 
 export interface RunCodeOptions {
   language?: string;
   cwd?: string;
-  timeout?: number;
+  timeoutMs?: number;
   envs?: Record<string, string>;
   context?: CodeContext;
   onStdout?: (chunk: CodeOutputChunk) => void;
@@ -175,7 +175,7 @@ export async function runCodeWithRuntime(
 
   const stream = await runtime.start({
     process,
-    timeout: options.timeout,
+    timeoutMs: normalizeExecutionTimeoutMilliseconds(options.timeoutMs),
   });
 
   let cmdId = "";
@@ -270,7 +270,7 @@ export class PythonCodeContextManager {
       contextId: "default",
       cwd: options.cwd,
       language: options.language,
-      timeout: options.timeout,
+      timeoutMs: options.timeoutMs,
     }), true);
     this.#defaultContext = context;
     return context.execute(code, options);
@@ -360,7 +360,7 @@ class PythonCodeContextSession {
       await this.ensureStarted();
       const callbacks = resolveCallbacks(options);
       const cwd = options.cwd ?? this.context.cwd;
-      const timeout = options.timeout ?? this.context.timeout;
+      const timeoutMs = options.timeoutMs ?? this.context.timeoutMs;
       const language = normalizeLanguage(options.language ?? this.context.language);
       if (!isPythonLanguage(language)) {
         throw new ConfigurationError("code contexts currently support python only");
@@ -372,7 +372,7 @@ class PythonCodeContextSession {
           stdin: encodeStreamData(`${JSON.stringify({
             code: Buffer.from(code, "utf8").toString("base64"),
             cwd,
-            timeout,
+            timeoutMs,
           })}\n`),
         },
       });
@@ -437,7 +437,7 @@ class PythonCodeContextSession {
     this.#stream = await this.#runtime.start({
       process,
       stdin: true,
-      timeout: this.context.timeout,
+      timeoutMs: normalizeExecutionTimeoutMilliseconds(this.context.timeoutMs),
     });
     for (;;) {
       const frame = await this.#stream.next();
@@ -709,6 +709,16 @@ function decodeStreamData(value?: string): string {
     return "";
   }
   return Buffer.from(value, "base64").toString("utf8");
+}
+
+function normalizeExecutionTimeoutMilliseconds(timeoutMs: number | undefined): number | undefined {
+  if (timeoutMs === undefined) {
+    return undefined;
+  }
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new ConfigurationError("timeoutMs must be a positive number");
+  }
+  return Math.floor(timeoutMs);
 }
 
 function encodeStreamData(value: string): string {

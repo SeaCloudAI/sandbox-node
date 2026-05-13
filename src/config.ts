@@ -27,7 +27,7 @@ export function resolveGatewayBaseUrl(baseUrl?: string, domain?: string): string
   if (explicitDomain) {
     return normalizeDomain(explicitDomain);
   }
-  const envDomain = processEnv.E2B_DOMAIN?.trim();
+  const envDomain = processEnv.SEACLOUD_BASE_URL?.trim();
   if (envDomain) {
     return normalizeDomain(envDomain);
   }
@@ -35,11 +35,11 @@ export function resolveGatewayBaseUrl(baseUrl?: string, domain?: string): string
 }
 
 export function resolveGatewayApiKey(apiKey?: string): string {
-  return apiKey ?? processEnv.E2B_API_KEY ?? "";
+  return apiKey ?? processEnv.SEACLOUD_API_KEY ?? "";
 }
 
 export function resolveGatewayProjectId(projectId?: string): string | undefined {
-  return projectId ?? processEnv.SEACLOUD_PROJECT_ID;
+  return projectId;
 }
 
 export function pickGatewayOptions(source: GatewayOptions): GatewayOptions {
