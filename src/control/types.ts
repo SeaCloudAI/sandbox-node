@@ -82,6 +82,76 @@ export interface ListSandboxesParams {
   nextToken?: string;
 }
 
+export interface SandboxMetricsRaw {
+  ts: number;
+  cpu_count: number;
+  cpu_used_pct: number;
+  mem_total: number;
+  mem_used: number;
+  mem_total_mib: number;
+  mem_used_mib: number;
+  mem_cache: number;
+  disk_used: number;
+  disk_total: number;
+  net_rx_bytes: number;
+  net_tx_bytes: number;
+}
+
+export interface SandboxMetricSnapshot {
+  sandboxID: string;
+  collectedAt: string;
+  error?: string;
+  cpuCount: number;
+  cpuUsedPct: number;
+  load1?: number | null;
+  load5?: number | null;
+  load15?: number | null;
+  cpuUserRate?: number | null;
+  cpuSystemRate?: number | null;
+  cpuIOWaitRate?: number | null;
+  cpuStealRate?: number | null;
+  memTotal: number;
+  memUsed: number;
+  memTotalMiB: number;
+  memUsedMiB: number;
+  memCache: number;
+  memoryAvailableBytes?: number | null;
+  memoryUsagePercent?: number | null;
+  swapTotalBytes?: number | null;
+  swapFreeBytes?: number | null;
+  swapCachedBytes?: number | null;
+  diskUsed: number;
+  diskTotal: number;
+  diskReadOpsPerSecond?: number | null;
+  diskWriteOpsPerSecond?: number | null;
+  diskReadBytesPerSecond?: number | null;
+  diskWriteBytesPerSecond?: number | null;
+  netRxBytes: number;
+  netTxBytes: number;
+  networkRecvBytesPerSecond?: number | null;
+  networkSentBytesPerSecond?: number | null;
+  networkRecvPacketsPerSecond?: number | null;
+  networkSentPacketsPerSecond?: number | null;
+  networkRecvErrorsPerSecond?: number | null;
+  networkSentErrorsPerSecond?: number | null;
+  networkRecvDropsPerSecond?: number | null;
+  networkSentDropsPerSecond?: number | null;
+  taskCurrent?: number | null;
+  taskMax?: number | null;
+  raw?: SandboxMetricsRaw;
+}
+
+export interface SandboxMetricsParams {
+  sandboxIDs?: string[];
+  limit?: number;
+}
+
+export interface SandboxMetricsResponse {
+  collectedAt: string;
+  items: SandboxMetricSnapshot[];
+  sandboxes: Record<string, SandboxMetricSnapshot>;
+}
+
 export interface SandboxLogsParams {
   cursor?: number;
   limit?: number;

@@ -234,14 +234,25 @@ import { Template, waitForPort } from "@seacloudai/sandbox";
 
 const built = await Template.build(
   new Template()
-    .fromTemplate("base")
-    .copy("./my-frontend", "/workspace/frontend", { forceUpload: true })
+    .fromTemplate("nfs")
+    .copy("./my-frontend", "/app", { forceUpload: true })
+    .runCmd("cd /app && npm install && npm run build")
     .setStartCmd(
-      "cd /workspace/frontend && python3 -m http.server 3000 --bind 0.0.0.0",
+      "mkdir -p /agent-workspace && if [ -z \"$(ls -A /agent-workspace 2>/dev/null)\" ]; then cp -a /app/. /agent-workspace/; fi && cd /agent-workspace && npm run start",
       waitForPort(3000),
     ),
   "my-frontend:v1",
   {
+    baseTemplateID: "tpl-nfs-0e70a5ababc44412",
+    workdir: "/agent-workspace",
+    volumeMounts: [
+      {
+        name: "workspace",
+        path: "/agent-workspace",
+        storageType: "nfs",
+        nfsHostPath: "/mnt/prod-sandbox-nfs-filesystem01",
+      },
+    ],
     wait: true,
     pollIntervalMs: 2_000,
     requestTimeoutMs: 180_000,
@@ -250,6 +261,8 @@ const built = await Template.build(
 
 console.log(built.templateId, built.buildId);
 ```
+
+`workdir` sets the default shell/file root. The actual persistent mount is declared by `volumeMounts`; for NFS you must provide `storageType: "nfs"` and the environment-specific `nfsHostPath`.
 
 Create a sandbox from the new template:
 
@@ -452,7 +465,55 @@ Low-level subpath modules remain available when you need direct request/response
 - high-level lifecycle: `create`, `connect`, `list`
 - follow-up control actions from the returned object: `reload()`, `connect()`, `resume()`, `getInfo()`, `getFullInfo()`, `getMetrics()`, `getHost()`, `logs()`, `pause()`, `refresh()`, `setTimeout()`, `kill()`, `delete()`, `isRunning()`
 - low-level control module: `SandboxControlService` from `@seacloudai/sandbox/control`
-- low-level service methods: `metrics`, `shutdown`, `createSandbox`, `listSandboxes`, `getSandbox`, `deleteSandbox`, `getSandboxLogs`, `pauseSandbox`, `connectSandbox`, `setSandboxTimeout`, `refreshSandbox`, `sendHeartbeat`
+- low-level service methods: `metrics`, `shutdown`, `createSandbox`, `listSandboxes`, `getSandbox`, `getSandboxMetrics`, `listSandboxMetrics`, `deleteSandbox`, `getSandboxLogs`, `pauseSandbox`, `connectSandbox`, `setSandboxTimeout`, `refreshSandbox`, `sendHeartbeat`
+
+### Monitoring And Metrics
+
+The SDK exposes two different metrics surfaces:
+
+- **Control-plane sandbox metrics** use Atlas through the gateway. Prefer these for dashboards and fleet monitoring because they can include Grafana/Kata enriched fields such as load average, CPU breakdown, memory pressure, disk I/O, network throughput, and task counts.
+- **Runtime metrics** call the sandbox nano-executor `/metrics` endpoint through `envdUrl`. Use these when you are already connected to one runtime and only need the raw in-sandbox snapshot. The runtime payload currently focuses on CPU, memory, and disk fields; network and disk-rate fields are available from the control-plane metrics surface.
+
+Control-plane metrics:
+
+```ts
+import { SandboxControlService } from "@seacloudai/sandbox/control";
+
+const control = new SandboxControlService({
+  baseUrl: process.env.SEACLOUD_BASE_URL,
+  apiKey: process.env.SEACLOUD_API_KEY,
+});
+
+const single = await control.getSandboxMetrics("sandbox-abc");
+console.log(single.cpuUsedPct, single.load1, single.memoryUsagePercent);
+console.log(single.networkSentBytesPerSecond, single.diskWriteBytesPerSecond);
+
+const batch = await control.listSandboxMetrics({
+  sandboxIDs: ["sandbox-abc", "sandbox-def"],
+  limit: 2,
+});
+console.log(batch.items.map((item) => item.sandboxID));
+```
+
+Control-plane snapshot fields include:
+
+- identity and status: `sandboxID`, `collectedAt`, `error`
+- CPU: `cpuCount`, `cpuUsedPct`, `load1`, `load5`, `load15`, `cpuUserRate`, `cpuSystemRate`, `cpuIOWaitRate`, `cpuStealRate`
+- memory: `memTotal`, `memUsed`, `memTotalMiB`, `memUsedMiB`, `memCache`, `memoryAvailableBytes`, `memoryUsagePercent`, swap fields
+- disk: `diskUsed`, `diskTotal`, `diskReadOpsPerSecond`, `diskWriteOpsPerSecond`, `diskReadBytesPerSecond`, `diskWriteBytesPerSecond`
+- network: `netRxBytes`, `netTxBytes`, `networkRecvBytesPerSecond`, `networkSentBytesPerSecond`, packet/error/drop rates
+- tasks and raw runtime snapshot: `taskCurrent`, `taskMax`, `raw`
+
+Runtime metrics:
+
+```ts
+const runtimeMetrics = await sandbox.getMetrics();
+console.log(runtimeMetrics.cpu_used_pct);
+console.log(runtimeMetrics.mem_used_mib, runtimeMetrics.mem_total_mib);
+console.log(runtimeMetrics.disk_used, runtimeMetrics.disk_total);
+```
+
+Use `control.metrics()` or `build.metrics()` only when you need the Prometheus text output for the gateway services themselves. Those service metrics are not per-sandbox runtime metrics.
 
 ### Operator APIs
 
@@ -487,8 +548,8 @@ Low-level `SandboxBuildService` from `@seacloudai/sandbox/build` exposes:
 - builds: `createBuild`, `getBuildFile`, `rollbackTemplate`, `listBuilds`, `getBuild`, `getBuildStatus`, `getBuildLogs`
 - tags: `assignTemplateTags`, `deleteTemplateTags`, `listTemplateTags`
 
-The public template contract is split into three layers: E2B create fields (`name`, `tags`, `cpuCount`, `memoryMB`), Atlas extension fields under `extensions` (`baseTemplateID`, `visibility`, `envs`, `storageType`, `storageSizeGB`, `volumeMounts`), E2B update field `public`, and build-only fields on `createBuild` (`fromImage`, `fromTemplate`, `steps`, `startCmd`, `readyCmd`, registry credentials, `steps[].filesHash`).
-When `extensions.storageType="nfs"`, the public API still does not expose `nfsHostPath`; each `volumeMounts[i].name` is treated as the per-sandbox NFS subdirectory name under the inherited base template's NFS root, and `volumeMounts[i].path` is the container mount path. A mount named `workspace` becomes the primary workspace path.
+The public template contract is split into three layers: E2B create fields (`name`, `tags`, `cpuCount`, `memoryMB`), Atlas extension fields under `extensions` (`baseTemplateID`, `visibility`, `envs`, `volumeMounts`, `workdir`), E2B update field `public`, and build-only fields on `createBuild` (`fromImage`, `fromTemplate`, `steps`, `startCmd`, `readyCmd`, registry credentials, `steps[].filesHash`).
+Each mount declares its own storage through `volumeMounts[i].storageType` plus the matching storage fields such as `nfsHostPath`, `storageClass`/`storageSizeGB`, `persistentVolumeClaim`, or `objectBucket`. `workdir` sets the sandbox default working directory and file API root; it does not create a mount by itself.
 Runtime behavior defaults from the image source: templates inheriting SeaCloud base/runtime templates keep the managed runtime, while direct external images run as plain business containers. `startCmd` and `readyCmd` only provide startup and readiness commands on top of that default.
 Public create calls reject unsupported top-level write fields such as `alias` and `public`; public update calls only accept `public`.
 

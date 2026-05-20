@@ -1044,7 +1044,12 @@ test("unit: client.buildTemplate forwards high-level build options and dedupes t
         tags: ["v1", "latest"],
         cpuCount: 2,
         memoryMB: 1024,
-        extensions: { baseTemplateID: "tpl-base-1" },
+        extensions: {
+          baseTemplateID: "tpl-base-1",
+          envs: { NODE_ENV: "production" },
+          volumeMounts: [{ name: "workspace", path: "/agent-workspace", storageType: "nfs", nfsHostPath: "/mnt/prod-sandbox-nfs-filesystem01" }],
+          workdir: "/agent-workspace",
+        },
       });
       return jsonResponse(202, {
         templateID: "tpl-options",
@@ -1098,6 +1103,9 @@ test("unit: client.buildTemplate forwards high-level build options and dedupes t
       cpuCount: 2,
       memoryMB: 1024,
       baseTemplateID: "tpl-base-1",
+      envs: { NODE_ENV: "production" },
+      volumeMounts: [{ name: "workspace", path: "/agent-workspace", storageType: "nfs", nfsHostPath: "/mnt/prod-sandbox-nfs-filesystem01" }],
+      workdir: "/agent-workspace",
       pollIntervalMs: 1,
     },
   );

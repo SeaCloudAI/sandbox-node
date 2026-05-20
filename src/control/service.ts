@@ -15,6 +15,9 @@ import type {
   RollingUpdateStatus,
   Sandbox,
   SandboxDetail,
+  SandboxMetricSnapshot,
+  SandboxMetricsParams,
+  SandboxMetricsResponse,
   SandboxLogsParams,
   SandboxLogsResponse,
   TimeoutRequest,
@@ -51,6 +54,24 @@ export class SandboxControlService extends BaseTransport {
     this.requireSandboxID(sandboxID);
 
     return this.requestJson<SandboxDetail>(`/api/v1/sandboxes/${encodeURIComponent(sandboxID)}`, {
+      method: "GET",
+    }, [200], options.requestTimeoutMs);
+  }
+
+  async getSandboxMetrics(sandboxID: string, options: ControlRequestOptions = {}): Promise<SandboxMetricSnapshot> {
+    this.requireSandboxID(sandboxID);
+
+    return this.requestJson<SandboxMetricSnapshot>(
+      `/api/v1/sandboxes/${encodeURIComponent(sandboxID)}/metrics`,
+      { method: "GET" },
+      [200],
+      options.requestTimeoutMs,
+    );
+  }
+
+  async listSandboxMetrics(params: SandboxMetricsParams = {}, options: ControlRequestOptions = {}): Promise<SandboxMetricsResponse> {
+    const path = withQuery("/api/v1/sandboxes/metrics", encodeMetricsParams(params));
+    return this.requestJson<SandboxMetricsResponse>(path, {
       method: "GET",
     }, [200], options.requestTimeoutMs);
   }
@@ -292,6 +313,20 @@ function encodeListParams(params: ListSandboxesParams): URLSearchParams {
   }
   if (params.nextToken?.trim()) {
     query.set("nextToken", params.nextToken.trim());
+  }
+  return query;
+}
+
+function encodeMetricsParams(params: SandboxMetricsParams): URLSearchParams {
+  const query = new URLSearchParams();
+  const ids = (params.sandboxIDs ?? [])
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0);
+  if (ids.length > 0) {
+    query.set("sandbox_ids", ids.join(","));
+  }
+  if (params.limit !== undefined) {
+    query.set("limit", String(params.limit));
   }
   return query;
 }

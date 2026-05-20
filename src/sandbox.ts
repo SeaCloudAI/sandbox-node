@@ -7,6 +7,7 @@ import type {
   RefreshSandboxRequest,
   Sandbox,
   SandboxDetail,
+  SandboxMetricSnapshot,
   SandboxLogsParams,
   SandboxLogsResponse,
   TimeoutRequest,
@@ -17,6 +18,7 @@ type SandboxBindingClient = Pick<
   GatewayClient,
   | "runtimeFromSandbox"
   | "getSandbox"
+  | "getSandboxMetrics"
   | "getSandboxLogs"
   | "pauseSandbox"
   | "deleteSandbox"
@@ -52,6 +54,10 @@ class BoundSandbox {
 
   async logs(params: SandboxLogsParams = {}): Promise<SandboxLogsResponse> {
     return this.#client.getSandboxLogs(this.data().sandboxID, params);
+  }
+
+  async metrics(): Promise<SandboxMetricSnapshot> {
+    return this.#client.getSandboxMetrics(this.data().sandboxID);
   }
 
   async pause(): Promise<boolean> {

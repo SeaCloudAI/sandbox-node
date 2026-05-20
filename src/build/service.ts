@@ -471,7 +471,7 @@ function validateTemplateExtensions(extensions: unknown): void {
     throw new ValidationError("extensions must be an object");
   }
   const payload = extensions as Record<string, unknown>;
-  const allowed = new Set(["baseTemplateID", "visibility", "envs", "storageType", "storageSizeGB", "volumeMounts"]);
+  const allowed = new Set(["baseTemplateID", "visibility", "envs", "volumeMounts", "workdir"]);
   for (const key of Object.keys(payload)) {
     if (!allowed.has(key)) {
       throw new ValidationError(`template extension field ${key} is not supported by the public SDK`);
@@ -479,6 +479,29 @@ function validateTemplateExtensions(extensions: unknown): void {
   }
   if (String(payload.visibility ?? "").trim() === "official") {
     throw new ValidationError("extensions.visibility=official is not supported by the public SDK");
+  }
+  if (payload.workdir !== undefined && !String(payload.workdir).trim().startsWith("/")) {
+    throw new ValidationError("extensions.workdir must be an absolute path");
+  }
+  if (payload.volumeMounts !== undefined) {
+    if (!Array.isArray(payload.volumeMounts)) {
+      throw new ValidationError("extensions.volumeMounts must be an array");
+    }
+    for (const [index, item] of payload.volumeMounts.entries()) {
+      if (typeof item !== "object" || item === null) {
+        throw new ValidationError(`extensions.volumeMounts[${index}] must be an object`);
+      }
+      const mount = item as Record<string, unknown>;
+      if (!String(mount.name ?? "").trim() || !String(mount.path ?? "").trim()) {
+        throw new ValidationError(`extensions.volumeMounts[${index}] requires name and path`);
+      }
+      if (!String(mount.path ?? "").trim().startsWith("/")) {
+        throw new ValidationError(`extensions.volumeMounts[${index}].path must be an absolute path`);
+      }
+      if (!String(mount.storageType ?? "").trim()) {
+        throw new ValidationError(`extensions.volumeMounts[${index}].storageType is required`);
+      }
+    }
   }
 }
 

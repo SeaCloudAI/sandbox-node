@@ -273,6 +273,8 @@ export interface MetricsResponse {
   mem_cache: number;
   disk_used: number;
   disk_total: number;
+  net_rx_bytes: number;
+  net_tx_bytes: number;
 }
 
 export interface ConfigureRequest {

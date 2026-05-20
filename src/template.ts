@@ -12,8 +12,10 @@ import type {
   GenericRegistryConfig,
   GetTemplateParams,
   ListTemplatesParams,
+  PublicTemplateExtensions,
   TemplateCreateRequest,
   TemplateResponse,
+  TemplateVolumeMount,
 } from "./build/types.js";
 import { resolveGatewayOptions } from "./config.js";
 import type { ClientOptions } from "./core/transport.js";
@@ -107,6 +109,10 @@ export interface TemplateBuildOptions {
   requestTimeoutMs?: number;
   tags?: string[];
   baseTemplateID?: string;
+  visibility?: string;
+  envs?: Record<string, string>;
+  volumeMounts?: TemplateVolumeMount[];
+  workdir?: string;
   cpuCount?: number;
   memoryMB?: number;
   wait?: boolean;
@@ -547,9 +553,7 @@ export class Template {
       tags,
       cpuCount: options.cpuCount,
       memoryMB: options.memoryMB,
-      extensions: options.baseTemplateID?.trim()
-        ? { baseTemplateID: options.baseTemplateID.trim() }
-        : undefined,
+      extensions: buildCreateTemplateExtensions(options),
     } satisfies TemplateCreateRequest);
 
     const buildID = createBuildID();
@@ -785,6 +789,26 @@ function emitBuildLogs(
     );
   }
   return entries.length;
+}
+
+function buildCreateTemplateExtensions(options: BoundTemplateBuildOptions): PublicTemplateExtensions | undefined {
+  const extensions: PublicTemplateExtensions = {};
+  if (options.baseTemplateID?.trim()) {
+    extensions.baseTemplateID = options.baseTemplateID.trim();
+  }
+  if (options.visibility?.trim()) {
+    extensions.visibility = options.visibility.trim();
+  }
+  if (options.envs && Object.keys(options.envs).length > 0) {
+    extensions.envs = { ...options.envs };
+  }
+  if (options.volumeMounts && options.volumeMounts.length > 0) {
+    extensions.volumeMounts = options.volumeMounts.map((mount) => ({ ...mount }));
+  }
+  if (options.workdir?.trim()) {
+    extensions.workdir = options.workdir.trim();
+  }
+  return Object.keys(extensions).length > 0 ? extensions : undefined;
 }
 
 export async function buildTemplateWithService(

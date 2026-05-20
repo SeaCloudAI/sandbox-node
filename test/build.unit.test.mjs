@@ -440,9 +440,28 @@ test("unit: build request encoding and validation", async (t) => {
         extensions: {
           baseTemplateID: "tpl-base-1",
           visibility: "team",
+          workdir: "/cache",
+          volumeMounts: [{ name: "cache", path: "/cache", storageType: "ephemeral" }],
+        },
+      }),
+    );
+    await assert.rejects(
+      service.createTemplate({
+        name: "demo",
+        extensions: {
+          storageType: "nfs",
+        },
+      }),
+      /template extension field storageType is not supported by the public SDK/,
+    );
+    await assert.rejects(
+      service.createTemplate({
+        name: "demo",
+        extensions: {
           volumeMounts: [{ name: "cache", path: "/cache" }],
         },
       }),
+      /extensions\.volumeMounts\[0\]\.storageType is required/,
     );
     await assert.rejects(
       service.createTemplate({

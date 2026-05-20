@@ -246,6 +246,75 @@ test("unit: sandbox request encoding", async (t) => {
     );
   });
 
+  await t.test("sandbox metrics endpoints use expected paths and expose enriched fields", async () => {
+    const calls = [];
+    const client = createGatewayClient(async (input, init) => {
+      calls.push({ url: String(input), method: init.method });
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/sandboxes/sb-1/metrics") {
+        return jsonResponse(200, {
+          sandboxID: "sb-1",
+          collectedAt: "2026-05-20T00:00:00Z",
+          cpuCount: 2,
+          cpuUsedPct: 12.5,
+          load1: 0.4,
+          cpuUserRate: 0.2,
+          memTotal: 2147483648,
+          memUsed: 1073741824,
+          memTotalMiB: 2048,
+          memUsedMiB: 1024,
+          memCache: 128,
+          memoryUsagePercent: 50,
+          diskUsed: 1024,
+          diskTotal: 2048,
+          diskReadBytesPerSecond: 4096,
+          netRxBytes: 10,
+          netTxBytes: 20,
+          networkRecvBytesPerSecond: 100,
+          taskCurrent: 3,
+        });
+      }
+      if (url.pathname === "/api/v1/sandboxes/metrics") {
+        assert.equal(url.searchParams.get("sandbox_ids"), "sb-1,sb-2");
+        assert.equal(url.searchParams.get("limit"), "2");
+        return jsonResponse(200, {
+          collectedAt: "2026-05-20T00:00:00Z",
+          items: [{
+            sandboxID: "sb-1",
+            collectedAt: "2026-05-20T00:00:00Z",
+            cpuCount: 2,
+            cpuUsedPct: 12.5,
+            memTotal: 1,
+            memUsed: 1,
+            memTotalMiB: 1,
+            memUsedMiB: 1,
+            memCache: 0,
+            diskUsed: 1,
+            diskTotal: 1,
+            netRxBytes: 1,
+            netTxBytes: 1,
+          }],
+          sandboxes: {},
+        });
+      }
+      throw new Error(`unexpected request: ${String(input)} ${init.method}`);
+    });
+
+    const single = await client.getSandboxMetrics("sb-1");
+    const batch = await client.listSandboxMetrics({ sandboxIDs: ["sb-1", " ", "sb-2"], limit: 2 });
+
+    assert.equal(single.load1, 0.4);
+    assert.equal(single.memoryUsagePercent, 50);
+    assert.equal(single.diskReadBytesPerSecond, 4096);
+    assert.equal(single.networkRecvBytesPerSecond, 100);
+    assert.equal(single.taskCurrent, 3);
+    assert.equal(batch.items[0].sandboxID, "sb-1");
+    assert.deepEqual(calls.map((call) => [new URL(call.url).pathname, call.method]), [
+      ["/api/v1/sandboxes/sb-1/metrics", "GET"],
+      ["/api/v1/sandboxes/metrics", "GET"],
+    ]);
+  });
+
   await t.test("admin control endpoints use expected paths and shapes", async () => {
     const calls = [];
     const client = createGatewayClient(async (input, init) => {
@@ -365,6 +434,23 @@ test("unit: sandbox request encoding", async (t) => {
       if (String(input).endsWith("/logs")) {
         return jsonResponse(200, { logs: [] });
       }
+      if (String(input).endsWith("/metrics")) {
+        return jsonResponse(200, {
+          sandboxID: "sb-1",
+          collectedAt: "2026-05-20T00:00:00Z",
+          cpuCount: 1,
+          cpuUsedPct: 1,
+          memTotal: 1,
+          memUsed: 1,
+          memTotalMiB: 1,
+          memUsedMiB: 1,
+          memCache: 0,
+          diskUsed: 1,
+          diskTotal: 1,
+          netRxBytes: 1,
+          netTxBytes: 1,
+        });
+      }
       return jsonResponse(200, {
         sandboxID: "sb-1",
         envdUrl: "https://sandbox-gateway.cloud.seaart.ai",
@@ -375,10 +461,13 @@ test("unit: sandbox request encoding", async (t) => {
     const sandbox = await client.createSandbox({ templateID: "tpl" });
     const detail = await sandbox.reload();
     await sandbox.logs();
+    const metrics = await sandbox.metrics();
 
     assert.equal(detail.sandboxID, "sb-1");
+    assert.equal(metrics.sandboxID, "sb-1");
     assert.equal(calls[1].url, "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes/sb-1");
     assert.equal(calls[2].url, "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes/sb-1/logs");
+    assert.equal(calls[3].url, "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes/sb-1/metrics");
   });
 
   await t.test("high-level client create reuses stored gateway config", async () => {

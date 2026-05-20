@@ -1,24 +1,34 @@
 export interface TemplateVolumeMount {
   name: string;
   path: string;
+  storageType: string;
+  hostPath?: string;
+  nfsHostPath?: string;
+  storageClass?: string;
+  storageSizeGB?: number;
+  persistentVolumeClaim?: string;
+  emptyDirSizeLimit?: string;
+  emptyDirMedium?: string;
+  objectBucket?: string;
+  objectKeyPrefix?: string;
+  readOnly?: boolean;
+  subPath?: string;
 }
 
 export interface PublicTemplateExtensions {
   baseTemplateID?: string;
   visibility?: string;
   envs?: Record<string, string>;
-  storageType?: string;
-  storageSizeGB?: number;
   volumeMounts?: TemplateVolumeMount[];
+  workdir?: string;
 }
 
 export interface TemplateExtensions {
   baseTemplateID?: string;
   visibility?: string;
   envs?: Record<string, string>;
-  storageType?: string;
-  storageSizeGB?: number;
   volumeMounts?: TemplateVolumeMount[];
+  workdir?: string;
   image?: string;
   imageSource?: string;
   projectID?: string;
