@@ -182,7 +182,7 @@ export interface TemplateResponse {
   ttlSeconds?: number;
   daemonImage?: string;
   cloudsinkURL?: string;
-  sandboxRoot?: string;
+  workdir?: string;
   probeTargets?: string;
   probeIntervalSecs?: number;
   probeTimeoutSecs?: number;
