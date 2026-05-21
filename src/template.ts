@@ -1402,7 +1402,8 @@ async function resolveTemplateRequest(
         if (!file.url?.trim()) {
           throw new ValidationError(`build file upload URL is missing for hash ${hash}`);
         }
-        await uploadBuildFile(file.url, tarBytes, fetchImpl);
+        validateBuildContextSize(tarBytes.byteLength, file.maxContextBytes);
+        await uploadBuildFile(file.url, tarBytes, file.maxContextBytes, fetchImpl);
       }
       uploaded.add(hash);
     }
@@ -1561,16 +1562,46 @@ function ensureTrailingSlash(value: string): string {
 async function uploadBuildFile(
   rawUrl: string,
   data: Uint8Array,
+  maxContextBytes: number | undefined,
   fetchImpl: typeof fetch | undefined,
 ): Promise<void> {
+  const headers: Record<string, string> = { "Content-Type": "application/x-tar" };
+  if (maxContextBytes && maxContextBytes > 0) {
+    headers["x-goog-content-length-range"] = `0,${Math.trunc(maxContextBytes)}`;
+  }
   const response = await (fetchImpl ?? globalThis.fetch)(rawUrl, {
     method: "PUT",
-    headers: { "Content-Type": "application/x-tar" },
+    headers,
     body: data as unknown as ArrayBuffer,
   });
   if (!response.ok) {
     throw new ValidationError(`build file upload failed with status ${response.status}`);
   }
+}
+
+function validateBuildContextSize(sizeBytes: number, maxContextBytes: number | undefined): void {
+  if (!maxContextBytes || maxContextBytes <= 0 || sizeBytes <= maxContextBytes) {
+    return;
+  }
+  throw new ValidationError(
+    `build context archive size ${formatByteSize(sizeBytes)} exceeds limit ${formatByteSize(maxContextBytes)}`,
+  );
+}
+
+function formatByteSize(sizeBytes: number): string {
+  if (sizeBytes < 1024) {
+    return `${sizeBytes}B`;
+  }
+  let value = sizeBytes;
+  let unit = "B";
+  for (const candidate of ["KiB", "MiB", "GiB", "TiB"]) {
+    value /= 1024;
+    unit = candidate;
+    if (value < 1024) {
+      break;
+    }
+  }
+  return `${value.toFixed(1)}${unit}`;
 }
 
 async function resolveTemplateRefID(service: SandboxBuildService, ref: string): Promise<string> {

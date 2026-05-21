@@ -1397,6 +1397,7 @@ test("unit: client.buildTemplate auto-uploads local COPY sources", async () => {
           uploads.push({
             url: String(input),
             method: init.method,
+            headers: init.headers,
             body: new Uint8Array(await new Response(init.body).arrayBuffer()),
           });
           return new Response(null, { status: 200 });
@@ -1407,7 +1408,7 @@ test("unit: client.buildTemplate auto-uploads local COPY sources", async () => {
           return jsonResponse(202, { templateID: "tpl-copy", buildID: "build-copy", names: ["demo"], tags: ["auto-copy"], aliases: [], public: false });
         }
         if (url.pathname.includes("/files/") && init.method === "GET") {
-          return jsonResponse(200, { present: false, url: `https://upload.example${url.pathname}` });
+          return jsonResponse(200, { present: false, url: `https://upload.example${url.pathname}`, maxContextBytes: 104857600 });
         }
         if (url.pathname.startsWith("/api/v1/templates/tpl-copy/builds/") && init.method === "POST") {
           const body = JSON.parse(init.body);
@@ -1436,6 +1437,8 @@ test("unit: client.buildTemplate auto-uploads local COPY sources", async () => {
 
   assert.equal(uploads.length, 1);
   assert.equal(uploads[0].method, "PUT");
+  assert.equal(uploads[0].headers["Content-Type"], "application/x-tar");
+  assert.equal(uploads[0].headers["x-goog-content-length-range"], "0,104857600");
   assert.equal(uploads[0].body[0], 0x1f);
   assert.equal(uploads[0].body[1], 0x8b);
   assert.equal(copiedStep[0].args[1], "/app/");

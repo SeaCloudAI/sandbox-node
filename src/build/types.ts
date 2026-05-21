@@ -249,6 +249,7 @@ export type BuildTriggerResponse = Record<string, never>;
 export interface FilePresenceResponse {
   present: boolean;
   url?: string;
+  maxContextBytes?: number;
 }
 
 export interface RollbackRequest {
