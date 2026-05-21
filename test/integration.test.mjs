@@ -355,9 +355,7 @@ test("build plane integration", { skip: !shouldRun }, async (t) => {
       const detail = await build.getTemplate(templateID, { limit: 10 });
       assert.equal(detail.templateID, templateID);
 
-      const updated = await build.updateTemplate(templateID, {
-        extensions: { seacloud: { envs: { SDK_TEST: "1" } } },
-      });
+      const updated = await build.updateTemplate(templateID, { public: false });
       assert.ok(updated.names.length > 0);
 
       const file = await build.getBuildFile(templateID, "a".repeat(64));

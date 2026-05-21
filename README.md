@@ -553,6 +553,10 @@ Each mount declares its own storage through `volumeMounts[i].storageType` plus t
 Runtime behavior defaults from the image source: templates inheriting SeaCloud base/runtime templates keep the managed runtime, while direct external images run as plain business containers. `startCmd` and `readyCmd` only provide startup and readiness commands on top of that default.
 Public create calls reject unsupported top-level write fields such as `alias` and `public`; public update calls only accept `public`.
 
+New custom templates default to `type: "custom"`, `version: "v0.1.0"`, `cpuCount: 1`, `memoryMB: 512`, `ttlSeconds: 300`, and resource limit ratios of `1.0`. Server-generated template IDs use `tpl-{type}-{16 lowercase hex}` and server-generated initial build IDs use `build-{16 lowercase hex}`. Client-supplied build IDs passed to `createBuild(templateID, buildID, ...)` must be lowercase DNS labels up to 63 characters; the SDK recommends the `build-` prefix.
+
+`createTemplate`, `listTemplates`, and `getTemplate` responses include `type` and `version` when the backend returns them. Treat `type` as the stable Atlas template family and `version` as that family's version marker.
+
 For Node callers, the public write path and template read path now use different extension models on purpose:
 
 - `createTemplate` uses `PublicTemplateExtensions`; `updateTemplate` uses `{ public?: boolean }`
@@ -563,6 +567,10 @@ This matches the current public builder API contract: request fields are intenti
 `createTemplate` rejects `visibility="official"` on public routes, including `extensions.visibility === "official"`.
 
 `createBuild` now follows the E2B wire contract directly: COPY contexts are passed through `steps[].filesHash`, and the SDK returns the raw `202 {}` trigger response without adding helper fields.
+
+`fromImage` switches the template to an already-built image and does not start a Dockerfile/Kubernetes build job by itself. `fromTemplate` resolves a ready template image and uses it as the build base for supported E2B steps. `fromDockerfile` is a client-side convenience that parses a supported Dockerfile subset into `fromImage`, `steps`, `startCmd`, and `readyCmd`; it is not the platform admin raw-Dockerfile build route. Raw Dockerfile builds that produce Harbor images are an admin/internal sandbox-builder API and are intentionally not exposed by this public SDK.
+
+Build records can move through `uploaded`, `waiting`, `building`, `ready`, and `error`. `uploaded` means a referenced COPY context is still missing; upload it through the file handshake and call `createBuild` again with the same `buildID`.
 
 `getTemplateByAlias` is a pure alias lookup endpoint. It should only be used with an actual published alias value.
 

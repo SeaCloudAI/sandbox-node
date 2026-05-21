@@ -53,6 +53,8 @@ export interface TemplateUpdateRequest {
 export interface TemplateCreateResponse {
   templateID: string;
   buildID: string;
+  type?: string;
+  version?: string;
   public: boolean;
   names: string[];
   tags: string[];
@@ -99,6 +101,8 @@ export interface TemplateDNSOption {
 export interface ListedTemplate {
   templateID: string;
   buildID?: string;
+  type?: string;
+  version?: string;
   cpuCount: number;
   memoryMB: number;
   diskSizeMB: number;

@@ -47,6 +47,8 @@ test("unit: build template endpoints", async (t) => {
         return jsonResponse(202, {
           templateID: "tpl-1",
           buildID: "build-1",
+          type: "custom",
+          version: "v0.1.0",
           public: false,
           names: ["user/demo"],
           tags: ["v1"],
@@ -72,6 +74,8 @@ test("unit: build template endpoints", async (t) => {
         return jsonResponse(200, {
           templateID: "tpl-1",
           buildID: "build-2",
+          type: "custom",
+          version: "v0.1.0",
           buildStatus: "ready",
           cpuCount: 2,
           memoryMB: 1024,
@@ -140,10 +144,14 @@ test("unit: build template endpoints", async (t) => {
     await service.deleteTemplate("tpl-1");
 
     assert.equal(created.templateID, "tpl-1");
+    assert.equal(created.type, "custom");
+    assert.equal(created.version, "v0.1.0");
     assert.deepEqual(listed, []);
     assert.equal(aliased.templateID, "tpl-1");
     assert.equal(resolved.templateID, "tpl-1");
     assert.equal(detail.templateID, "tpl-1");
+    assert.equal(detail.type, "custom");
+    assert.equal(detail.version, "v0.1.0");
     assert.equal(detail.buildID, "build-2");
     assert.equal(detail.buildStatus, "ready");
     assert.equal(detail.cpuCount, 2);
