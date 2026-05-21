@@ -1,17 +1,15 @@
-# Sandbox Node SDK
+# SeaCloudAI Sandbox Node SDK
 
-TypeScript SDK for Sandbox control-plane, build-plane, and nano-executor CMD APIs.
+Run code, agent workflows, and lightweight services in isolated cloud sandboxes from TypeScript or JavaScript. The SDK gives you a simple E2B-style workflow for sandbox lifecycle, files, commands, PTY, code execution, service proxying, and reusable template builds.
 
-## Product Highlights
+## Why SeaCloudAI Sandbox
 
-SeaCloudAI Sandbox gives you a cloud runtime for code execution, agent workflows, lightweight services, and custom template builds.
-
-- **Start fast with official templates**: use `base` for files, commands, git, and PTY; use `code-interpreter` for multi-language code execution; use agent templates such as `claude` or `codex` when those environments are published.
-- **Manage the full sandbox lifecycle**: create, connect, pause, resume, refresh timeout, inspect logs, and delete sandboxes through one SDK.
-- **Run real workloads inside the sandbox**: write files, execute commands, start background services, open PTY sessions, and expose HTTP services with `sandbox.getHost(port)`.
-- **Move from local code to reusable templates**: upload files to a running sandbox for quick iteration, then bake local code into a custom template with `Template.copy(...)`.
-- **Use one workflow across languages**: Node, Python, and Go SDKs expose the same core sandbox, runtime, and template-building concepts.
-- **Keep an E2B-style public workflow**: lifecycle, files, commands, PTY, code interpreter, and template helpers follow familiar E2B-style patterns while using SeaCloudAI gateway and runtime configuration.
+- **Cloud sandboxes without infrastructure work**: create disposable isolated runtimes without managing Kubernetes, containers, runtime tokens, or service proxies yourself.
+- **One object for the full workflow**: create a sandbox, write files, run commands, open a PTY, clone git repos, expose a web service, inspect logs, and clean up from the same SDK.
+- **Official templates for fast starts**: use `base` for files, commands, git, and PTY; use `code-interpreter` for multi-language code execution; use agent templates such as `claude` or `codex` when your environment publishes them.
+- **Reusable environments**: prototype in a running sandbox, then bake stable setup into a custom `tpl-...` template that can be pinned and reused in production.
+- **Familiar migration path**: lifecycle, filesystem, commands, PTY, code interpreter, and template helpers follow E2B-style patterns while using SeaCloudAI gateway and runtime configuration.
+- **Same concepts across SDKs**: Node, Python, and Go expose the same core sandbox, runtime, and template-building model.
 
 ## Install
 
@@ -19,27 +17,7 @@ SeaCloudAI Sandbox gives you a cloud runtime for code execution, agent workflows
 npm install @seacloudai/sandbox
 ```
 
-## Entrypoints
-
-Preferred public API:
-
-- preferred sandbox entrypoint: `Sandbox.create(...)`
-- additional sandbox lifecycle helpers: `Sandbox.connect(...)`, `Sandbox.list(...)`, `Sandbox.getInfo(...)`, `Sandbox.getFullInfo(...)`, `Sandbox.pause(...)`, `Sandbox.kill(...)`, `Sandbox.setTimeout(...)`
-- sandbox runtime modules from the returned object: `sandbox.commands`, `sandbox.files`, `sandbox.git`, `sandbox.pty`
-- preferred template entrypoint: `Template()` / `new Template()` for the DSL, plus `Template.build()`, `Template.buildInBackground()`, `Template.list()`, `Template.get()`, `Template.delete()`
-- low-level transport modules: `@seacloudai/sandbox/control`, `@seacloudai/sandbox/build`, `@seacloudai/sandbox/cmd`
-
-High-level `Sandbox` / `Template` helpers read gateway config from `SEACLOUD_BASE_URL` / `SEACLOUD_API_KEY`. Low-level `control`, `build`, and `cmd` clients can still be initialized with explicit transport options when needed. Runtime access is derived from sandbox create/detail/connect responses; callers should not hardcode runtime endpoints or tokens.
-
-## E2B Alignment
-
-- Supported alignment target: sandbox lifecycle, files, commands, git, PTY, and the high-level template DSL are designed to follow the same public workflow as `e2b-docs/sdk`.
-- Code interpreter alignment: `sandbox.runCode(...)` is available for `python`, `javascript`, `typescript`, `bash`, `r`, and `java`. Python results support `display(...)`, last-expression capture, tables, Matplotlib PNG/chart payloads, a persistent default execution context, and stateful `createCodeContext/listCodeContexts/restartCodeContext/removeCodeContext` helpers. Non-Python contexts use the same API surface but currently behave as stateless execution profiles.
-- Known unsupported area: snapshot APIs are not exposed because the underlying platform does not support them yet.
-- Known partial area: only Python contexts are stateful. Non-Python contexts still execute in isolated one-shot processes.
-- Runtime normalization note: the SDK smooths a few runtime-specific quirks so the high-level behavior stays E2B-like, such as missing-process `kill()` results and PTY reconnect output framing.
-
-## Environment
+## Configure
 
 Use environment variables for gateway configuration in all examples and quick starts:
 
@@ -59,9 +37,50 @@ Default production gateway:
 https://sandbox-gateway.cloud.seaart.ai
 ```
 
+The SeaCloudAI production gateway is currently hosted under the `seaart.ai` domain.
+
 High-level `Sandbox.create(...)` requires an explicit template reference. Pass a concrete template ID such as `tpl-...` or a stable official template type such as `base`, `code-interpreter`, `claude`, or `codex` when your environment publishes those official templates.
 
-## From Zero To One
+## 60-Second Quickstart
+
+```ts
+import { Sandbox } from "@seacloudai/sandbox";
+
+const sandbox = await Sandbox.create("base", {
+  timeout: 1800,
+  waitReady: true,
+});
+
+try {
+  await sandbox.files.write("/root/workspace/hello.txt", "hello from SeaCloudAI\n");
+
+  const result = await sandbox.commands.run("sh", {
+    args: ["-lc", "cat /root/workspace/hello.txt && uname -a"],
+  });
+
+  console.log(result.stdout);
+} finally {
+  await sandbox.delete();
+}
+```
+
+That is the core loop: create an isolated cloud runtime, move files in, run real commands, and clean it up. Use `sandbox.getHost(port)` when you start an HTTP service and want a public proxy URL.
+
+## Main Entrypoints
+
+- `Sandbox.create(...)`, `Sandbox.connect(...)`, `Sandbox.list(...)`: create and manage sandboxes.
+- `sandbox.files`, `sandbox.commands`, `sandbox.git`, `sandbox.pty`: work inside a running sandbox.
+- `sandbox.runCode(...)`: execute code in `code-interpreter` templates.
+- `Template()` / `new Template()`, `Template.build(...)`, `Template.buildInBackground(...)`: build reusable templates.
+- `@seacloudai/sandbox/control`, `@seacloudai/sandbox/build`, `@seacloudai/sandbox/cmd`: low-level transports for advanced integrations.
+
+Runtime access is derived from sandbox create/detail/connect responses. Do not hardcode runtime endpoints or tokens.
+
+## E2B-Style Workflow
+
+The high-level lifecycle, filesystem, command, git, PTY, code interpreter, and template APIs are designed to feel familiar to E2B users. Snapshot APIs are not exposed yet because the underlying platform does not support them. Python code contexts are stateful; non-Python code contexts currently behave as reusable execution profiles over isolated one-shot processes.
+
+## Guided Walkthrough
 
 This section is the recommended path for first-time users. It starts from environment setup, then creates sandboxes from official templates, runs commands, exposes a frontend through `envdUrl`, and finally builds a reusable custom template from local code.
 
@@ -227,32 +246,19 @@ The first argument is a local path on your machine. The second argument is the d
 
 ### 7. Build Your Own Template From Local Code
 
-This uploads a local directory into the build context with `copy(...)`, builds a new template, and sets a startup command for future sandboxes created from that template.
+This uploads a local directory into the build context with `copy(...)`, builds a reusable template image, and sets a startup command for future sandboxes created from that template.
 
 ```ts
 import { Template, waitForPort } from "@seacloudai/sandbox";
 
 const built = await Template.build(
   new Template()
-    .fromTemplate("nfs")
+    .fromNodeImage("20-alpine")
     .copy("./my-frontend", "/app", { forceUpload: true })
-    .runCmd("cd /app && npm install && npm run build")
-    .setStartCmd(
-      "mkdir -p /agent-workspace && if [ -z \"$(ls -A /agent-workspace 2>/dev/null)\" ]; then cp -a /app/. /agent-workspace/; fi && cd /agent-workspace && npm run start",
-      waitForPort(3000),
-    ),
+    .runCmd("cd /app && npm install")
+    .setStartCmd("cd /app && npm start", waitForPort(3000)),
   "my-frontend:v1",
   {
-    baseTemplateID: "tpl-nfs-0e70a5ababc44412",
-    workdir: "/agent-workspace",
-    volumeMounts: [
-      {
-        name: "workspace",
-        path: "/agent-workspace",
-        storageType: "nfs",
-        nfsHostPath: "/mnt/prod-sandbox-nfs-filesystem01",
-      },
-    ],
     wait: true,
     pollIntervalMs: 2_000,
     requestTimeoutMs: 180_000,
@@ -262,7 +268,7 @@ const built = await Template.build(
 console.log(built.templateId, built.buildId);
 ```
 
-`workdir` sets the default shell/file root. The actual persistent mount is declared by `volumeMounts`; for NFS you must provide `storageType: "nfs"` and the environment-specific `nfsHostPath`.
+Use `fromTemplate("base")` when you want to inherit a published SeaCloud template, or `fromNodeImage(...)`, `fromPythonImage(...)`, and other image helpers when a public base image is enough. Advanced storage options such as NFS, block volumes, and object storage are documented later in the build reference.
 
 Create a sandbox from the new template:
 
@@ -306,7 +312,7 @@ console.log(sandbox.getHost(3000));
 - Retry model: treat create/delete/build operations as remote control-plane actions; add idempotency and retry policy in your application layer according to your workload.
 - Timeout semantics: sandbox lifecycle uses E2B-style `timeout` seconds. Commands, PTY, git, and code execution helpers use `timeoutMs` milliseconds. `requestTimeoutMs` is only the SDK HTTP request timeout in milliseconds.
 
-## Quick Start
+## Additional Examples
 
 ### Control Plane
 
