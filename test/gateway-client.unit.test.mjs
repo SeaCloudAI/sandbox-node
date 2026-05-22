@@ -203,6 +203,39 @@ test("unit: sandbox request encoding", async (t) => {
     assert.equal(events.some((event) => JSON.stringify(event).includes("unit-auth-value")), false);
   });
 
+  await t.test("diagnostic logger failures do not affect requests", async () => {
+    const client = new GatewayClient({
+      baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+      apiKey: "unit-auth-value",
+      logger: () => {
+        throw new Error("logger failed");
+      },
+      fetch: async () => jsonResponse(200, []),
+    });
+
+    const response = await client.listSandboxes();
+    assert.deepEqual(response, []);
+  });
+
+  await t.test("diagnostic network errors redact embedded urls", async () => {
+    const events = [];
+    const client = new GatewayClient({
+      baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+      apiKey: "unit-auth-value",
+      logger: (event) => events.push(event),
+      fetch: async () => {
+        throw new Error("Get https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes?signature=secret-token failed");
+      },
+    });
+
+    await assert.rejects(() => client.listSandboxes(), /secret-token/);
+
+    const errorEvent = events.find((event) => event.type === "error");
+    assert.ok(errorEvent);
+    assert.equal(errorEvent.error.includes("secret-token"), false);
+    assert.equal(errorEvent.error.includes("signature=%3Credacted%3E"), true);
+  });
+
   await t.test("sandbox lifecycle endpoints use expected paths", async () => {
     const calls = [];
     const client = createGatewayClient(async (input, init) => {

@@ -686,7 +686,7 @@ export class SandboxCommandService {
         path: safePath,
         requestId,
         durationMs,
-        error: error instanceof Error ? error.message : String(error),
+        error: sanitizeDiagnosticError(error instanceof Error ? error.message : String(error)),
       });
       throw error;
     } finally {
@@ -747,7 +747,7 @@ export class SandboxCommandService {
       path: sanitizeDiagnosticPath(this.#buildUrl(path)),
       requestId: error.requestId ?? "",
       status: error.statusCode,
-      error: error.message,
+      error: sanitizeDiagnosticError(error.message),
       errorKind: error.kind,
       retryable: error.retryable,
     });
@@ -755,7 +755,11 @@ export class SandboxCommandService {
 
   #emitDiagnostic(event: SDKDiagnosticEvent): void {
     if (this.logger) {
-      this.logger(event);
+      try {
+        this.logger(event);
+      } catch {
+        // Diagnostics must never change request behavior.
+      }
       return;
     }
     if (this.debug) {
@@ -820,6 +824,16 @@ function sanitizeDiagnosticPath(value: string): string {
     }
   }
   return `${url.pathname}${url.search}`;
+}
+
+function sanitizeDiagnosticError(value: string): string {
+  return value.replace(/https?:\/\/[^\s"'<>]+/g, (match) => {
+    try {
+      return sanitizeDiagnosticPath(match);
+    } catch {
+      return "<redacted-url>";
+    }
+  });
 }
 
 function isSensitiveQueryKey(key: string): boolean {
