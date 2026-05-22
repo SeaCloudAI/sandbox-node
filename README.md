@@ -480,7 +480,7 @@ Low-level subpath modules remain available when you need direct request/response
 The SDK exposes two different metrics surfaces:
 
 - **Control-plane sandbox metrics** use Atlas through the gateway. Prefer these for dashboards and fleet monitoring because they can include Grafana/Kata enriched fields such as load average, CPU breakdown, memory pressure, disk I/O, network throughput, and task counts.
-- **Runtime metrics** call the sandbox nano-executor `/metrics` endpoint through `envdUrl`. Use these when you are already connected to one runtime and only need the raw in-sandbox snapshot. The runtime payload currently focuses on CPU, memory, and disk fields; network and disk-rate fields are available from the control-plane metrics surface.
+- **Runtime metrics** call the sandbox nano-executor `/metrics` endpoint through `envdUrl`. Use these when you are already connected to one runtime and only need the raw in-sandbox snapshot. The runtime payload includes CPU, memory, disk, and cumulative network byte counters; derived rates and enriched Grafana/Kata fields are available from the control-plane metrics surface.
 
 Control-plane metrics:
 
@@ -519,6 +519,7 @@ const runtimeMetrics = await sandbox.getMetrics();
 console.log(runtimeMetrics.cpu_used_pct);
 console.log(runtimeMetrics.mem_used_mib, runtimeMetrics.mem_total_mib);
 console.log(runtimeMetrics.disk_used, runtimeMetrics.disk_total);
+console.log(runtimeMetrics.net_rx_bytes, runtimeMetrics.net_tx_bytes);
 ```
 
 Use `control.metrics()` or `build.metrics()` only when you need the Prometheus text output for the gateway services themselves. Those service metrics are not per-sandbox runtime metrics.
