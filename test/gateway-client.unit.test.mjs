@@ -177,6 +177,32 @@ test("unit: sandbox request encoding", async (t) => {
     assert.equal(response.length, 0);
   });
 
+  await t.test("logger receives sanitized request lifecycle events with request ids", async () => {
+    const events = [];
+    const client = new GatewayClient({
+      baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+      apiKey: "unit-auth-value",
+      logger: (event) => events.push(event),
+      fetch: async (input, init) => {
+        const url = new URL(String(input));
+        assert.equal(url.searchParams.get("nextToken"), "secret-page");
+        const headers = new Headers(init.headers);
+        assert.match(headers.get("X-Request-ID"), /.+/);
+        return jsonResponse(200, []);
+      },
+    });
+
+    await client.listSandboxes({ nextToken: "secret-page" });
+
+    assert.equal(events[0].type, "request");
+    assert.equal(events[0].method, "GET");
+    assert.equal(events[0].path, "/api/v1/sandboxes?nextToken=%3Credacted%3E");
+    assert.match(events[0].requestId, /.+/);
+    assert.equal(events[1].type, "response");
+    assert.equal(events[1].requestId, events[0].requestId);
+    assert.equal(events.some((event) => JSON.stringify(event).includes("unit-auth-value")), false);
+  });
+
   await t.test("sandbox lifecycle endpoints use expected paths", async () => {
     const calls = [];
     const client = createGatewayClient(async (input, init) => {
@@ -729,6 +755,32 @@ test("unit: cmd sdk", async (t) => {
       { username: "sandbox", range: "bytes=0-3" },
     );
     assert.equal(await response.text(), "hell");
+  });
+
+  await t.test("runtime logger redacts signed query parameters", async () => {
+    const events = [];
+    const cmd = createGatewayClient(async () => jsonResponse(200, {})).runtime({
+      baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+      accessToken: "unit-runtime-auth",
+      logger: (event) => events.push(event),
+      fetch: async (input, init) => {
+        const url = new URL(String(input));
+        assert.equal(url.searchParams.get("signature"), "signed-secret");
+        assert.match(new Headers(init.headers).get("X-Request-ID"), /.+/);
+        return new Response("hell", { status: 200 });
+      },
+    });
+
+    const response = await cmd.download(
+      { path: "~/hello.txt" },
+      { signature: "signed-secret", signatureExpiration: 3600 },
+    );
+    assert.equal(await response.text(), "hell");
+
+    assert.equal(events[0].path.includes("signed-secret"), false);
+    assert.equal(events[0].path.includes("signature=%3Credacted%3E"), true);
+    assert.equal(events[1].type, "response");
+    assert.equal(events[1].requestId, events[0].requestId);
   });
 
   await t.test("envs, configure, and ports use expected runtime paths", async () => {

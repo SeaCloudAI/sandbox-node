@@ -29,11 +29,15 @@ import type { ListedSandboxInstance, SandboxDetailInstance } from "./sandbox.js"
 type HighLevelClientOptions = {
   fetch?: ClientOptions["fetch"];
   requestTimeoutMs?: number;
+  debug?: ClientOptions["debug"];
+  logger?: ClientOptions["logger"];
 };
 
 export interface SandboxCreateOptions {
   fetch?: ClientOptions["fetch"];
   requestTimeoutMs?: number;
+  debug?: ClientOptions["debug"];
+  logger?: ClientOptions["logger"];
   template: string;
   timeout?: number;
   autoPause?: boolean;
@@ -47,6 +51,8 @@ type SandboxCreateOverrides = Omit<SandboxCreateOptions, "template">;
 export interface SandboxConnectOptions {
   fetch?: ClientOptions["fetch"];
   requestTimeoutMs?: number;
+  debug?: ClientOptions["debug"];
+  logger?: ClientOptions["logger"];
   timeout?: number;
 }
 
@@ -58,6 +64,8 @@ export interface SandboxUrlOptions {
 export interface SandboxListOptions extends ListSandboxesParams {
   fetch?: ClientOptions["fetch"];
   requestTimeoutMs?: number;
+  debug?: ClientOptions["debug"];
+  logger?: ClientOptions["logger"];
 }
 
 const SANDBOX_LIST_LIMIT_DEFAULT = 100;
@@ -1128,14 +1136,24 @@ function normalizeSandboxCreateArgs(
     const source = { ...maybeOptions, template: templateOrOptions };
     assertNoHighLevelGatewayConfig(source);
     return {
-      clientOptions: { fetch: source.fetch, requestTimeoutMs: source.requestTimeoutMs },
+      clientOptions: {
+        fetch: source.fetch,
+        requestTimeoutMs: source.requestTimeoutMs,
+        debug: source.debug,
+        logger: source.logger,
+      },
       body: normalizeSandboxCreateBody(source),
     };
   }
   const source = { ...templateOrOptions };
   assertNoHighLevelGatewayConfig(source);
   return {
-    clientOptions: { fetch: source.fetch, requestTimeoutMs: source.requestTimeoutMs },
+    clientOptions: {
+      fetch: source.fetch,
+      requestTimeoutMs: source.requestTimeoutMs,
+      debug: source.debug,
+      logger: source.logger,
+    },
     body: normalizeSandboxCreateBody(source),
   };
 }

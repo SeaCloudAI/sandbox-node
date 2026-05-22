@@ -14,3 +14,4 @@ export {
   ValidationError,
 } from "./errors.js";
 export type { ErrorDetail, ShutdownResponse } from "./types.js";
+export type { SDKDiagnosticEvent, SDKDiagnosticEventType, SDKLogger } from "./transport.js";

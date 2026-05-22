@@ -107,6 +107,8 @@ export interface BunInstallOptions extends TemplateCommandOptions {
 export interface TemplateBuildOptions {
   fetch?: ClientOptions["fetch"];
   requestTimeoutMs?: number;
+  debug?: ClientOptions["debug"];
+  logger?: ClientOptions["logger"];
   tags?: string[];
   baseTemplateID?: string;
   visibility?: string;
@@ -147,6 +149,8 @@ export interface TemplateTagInfo {
 export interface TemplateGetBuildStatusOptions {
   fetch?: ClientOptions["fetch"];
   requestTimeoutMs?: number;
+  debug?: ClientOptions["debug"];
+  logger?: ClientOptions["logger"];
   logsOffset?: number;
   limit?: number;
   level?: string;
@@ -155,9 +159,11 @@ export interface TemplateGetBuildStatusOptions {
 type HighLevelClientOptions = {
   fetch?: ClientOptions["fetch"];
   requestTimeoutMs?: number;
+  debug?: ClientOptions["debug"];
+  logger?: ClientOptions["logger"];
 };
-type BoundTemplateBuildOptions = Omit<TemplateBuildOptions, "fetch" | "requestTimeoutMs">;
-type BoundTemplateGetBuildStatusOptions = Omit<TemplateGetBuildStatusOptions, "fetch" | "requestTimeoutMs">;
+type BoundTemplateBuildOptions = Omit<TemplateBuildOptions, "fetch" | "requestTimeoutMs" | "debug" | "logger">;
+type BoundTemplateGetBuildStatusOptions = Omit<TemplateGetBuildStatusOptions, "fetch" | "requestTimeoutMs" | "debug" | "logger">;
 
 export class ReadyCmd {
   readonly #cmd: string;
@@ -239,14 +245,14 @@ export class Template {
 
   static async list(options: ListTemplatesParams & HighLevelClientOptions = {}): Promise<TemplateResponse[]> {
     assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
-    const { fetch, requestTimeoutMs, ...params } = options;
-    return listTemplatesWithService(new SandboxBuildService(resolveGatewayOptions({ fetch, requestTimeoutMs })), params);
+    const { fetch, requestTimeoutMs, debug, logger, ...params } = options;
+    return listTemplatesWithService(new SandboxBuildService(resolveGatewayOptions({ fetch, requestTimeoutMs, debug, logger })), params);
   }
 
   static async get(ref: string, options: GetTemplateParams & HighLevelClientOptions = {}): Promise<TemplateResponse> {
     assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
-    const { fetch, requestTimeoutMs, ...params } = options;
-    return getTemplateWithService(new SandboxBuildService(resolveGatewayOptions({ fetch, requestTimeoutMs })), ref, params);
+    const { fetch, requestTimeoutMs, debug, logger, ...params } = options;
+    return getTemplateWithService(new SandboxBuildService(resolveGatewayOptions({ fetch, requestTimeoutMs, debug, logger })), ref, params);
   }
 
   static async delete(ref: string, options: HighLevelClientOptions = {}): Promise<void> {
@@ -290,9 +296,9 @@ export class Template {
     options: TemplateGetBuildStatusOptions = {},
   ): Promise<TemplateBuildStatusInfo> {
     assertNoHighLevelGatewayConfig(options as Record<string, unknown>);
-    const { fetch, requestTimeoutMs, ...params } = options;
+    const { fetch, requestTimeoutMs, debug, logger, ...params } = options;
     return getTemplateBuildStatusWithService(
-      new SandboxBuildService(resolveGatewayOptions({ fetch, requestTimeoutMs })),
+      new SandboxBuildService(resolveGatewayOptions({ fetch, requestTimeoutMs, debug, logger })),
       data,
       params,
     );
@@ -951,9 +957,9 @@ function normalizeStaticTemplateBuildArgs(
 } {
   if (typeof nameOrOptions === "string") {
     assertNoHighLevelGatewayConfig(maybeOptions as Record<string, unknown>);
-    const { fetch, requestTimeoutMs, ...options } = maybeOptions;
+    const { fetch, requestTimeoutMs, debug, logger, ...options } = maybeOptions;
     return {
-      clientOptions: { fetch, requestTimeoutMs },
+      clientOptions: { fetch, requestTimeoutMs, debug, logger },
       name: nameOrOptions,
       options,
     };
@@ -961,9 +967,9 @@ function normalizeStaticTemplateBuildArgs(
   const source = { ...nameOrOptions };
   assertNoHighLevelGatewayConfig(source as Record<string, unknown>);
   const { name, ...rest } = source;
-  const { fetch, requestTimeoutMs, ...options } = rest;
+  const { fetch, requestTimeoutMs, debug, logger, ...options } = rest;
   return {
-    clientOptions: { fetch, requestTimeoutMs },
+    clientOptions: { fetch, requestTimeoutMs, debug, logger },
     name,
     options,
   };

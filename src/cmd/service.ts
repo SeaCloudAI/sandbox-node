@@ -5,6 +5,7 @@ import {
   ValidationError,
 } from "../core/errors.js";
 import { SDK_VERSION } from "../version.js";
+import type { SDKDiagnosticEvent, SDKLogger } from "../core/transport.js";
 import type {
   AgentRunRequest,
   AgentRunResponse,
@@ -195,6 +196,8 @@ export class SandboxCommandService {
   readonly baseUrl: string;
   readonly accessToken: string;
   readonly timeoutMs: number | undefined;
+  readonly debug: boolean;
+  readonly logger: SDKLogger | undefined;
 
   #fetchImpl: typeof fetch;
 
@@ -207,6 +210,8 @@ export class SandboxCommandService {
     this.baseUrl = baseUrl;
     this.accessToken = (options.accessToken ?? "").trim();
     this.timeoutMs = normalizeTimeoutMs(options.timeoutMs);
+    this.debug = options.debug ?? false;
+    this.logger = options.logger;
     this.#fetchImpl = options.fetch ?? globalThis.fetch;
   }
 
@@ -635,18 +640,54 @@ export class SandboxCommandService {
       options?.signal,
       options?.requestTimeoutMs ?? this.timeoutMs,
     );
+    const url = this.#buildUrl(path);
+    const headers = this.#buildHeaders(init.headers);
+    const requestId = ensureRequestID(headers);
+    const method = (init.method ?? "GET").toUpperCase();
+    const safePath = sanitizeDiagnosticPath(url);
+    const started = Date.now();
+    this.#emitDiagnostic({ type: "request", method, path: safePath, requestId });
 
     try {
-      return await this.#fetchImpl(this.#buildUrl(path), {
+      const response = await this.#fetchImpl(url, {
         ...init,
         // System routes like /metrics still require X-Access-Token when runtime auth is enabled.
-        headers: this.#buildHeaders(init.headers),
+        headers,
         signal: requestState.signal,
       });
+      this.#emitDiagnostic({
+        type: "response",
+        method,
+        path: safePath,
+        requestId,
+        status: response.status,
+        durationMs: Date.now() - started,
+      });
+      return response;
     } catch (error) {
+      const durationMs = Date.now() - started;
       if (requestState.didTimeout()) {
-        throw new RequestTimeoutError(requestState.timeoutMs, { cause: error });
+        const timeoutError = new RequestTimeoutError(requestState.timeoutMs, { cause: error });
+        this.#emitDiagnostic({
+          type: "error",
+          method,
+          path: safePath,
+          requestId,
+          durationMs,
+          error: timeoutError.message,
+          errorKind: "timeout",
+          retryable: true,
+        });
+        throw timeoutError;
       }
+      this.#emitDiagnostic({
+        type: "error",
+        method,
+        path: safePath,
+        requestId,
+        durationMs,
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     } finally {
       requestState.cleanup();
@@ -661,7 +702,9 @@ export class SandboxCommandService {
   ): Promise<T> {
     const response = await this.#request(path, init, options);
     if (!expectedStatuses.includes(response.status)) {
-      throw await APIError.fromResponse(response);
+      const error = await APIError.fromResponse(response);
+      this.#emitAPIError(path, init.method, error);
+      throw error;
     }
     return (await response.json()) as T;
   }
@@ -674,7 +717,9 @@ export class SandboxCommandService {
   ): Promise<void> {
     const response = await this.#request(path, init, options);
     if (!expectedStatuses.includes(response.status)) {
-      throw await APIError.fromResponse(response);
+      const error = await APIError.fromResponse(response);
+      this.#emitAPIError(path, init.method, error);
+      throw error;
     }
     await response.arrayBuffer();
   }
@@ -693,6 +738,40 @@ export class SandboxCommandService {
       headers: this.#connectHeaders(options, true),
       body: JSON.stringify(body),
     }, [200], options);
+  }
+
+  #emitAPIError(path: string, method: string | undefined, error: APIError): void {
+    this.#emitDiagnostic({
+      type: "error",
+      method: (method ?? "GET").toUpperCase(),
+      path: sanitizeDiagnosticPath(this.#buildUrl(path)),
+      requestId: error.requestId ?? "",
+      status: error.statusCode,
+      error: error.message,
+      errorKind: error.kind,
+      retryable: error.retryable,
+    });
+  }
+
+  #emitDiagnostic(event: SDKDiagnosticEvent): void {
+    if (this.logger) {
+      this.logger(event);
+      return;
+    }
+    if (this.debug) {
+      const parts = [
+        `type=${event.type}`,
+        `method=${event.method}`,
+        `path=${event.path}`,
+        `request_id=${event.requestId}`,
+        event.status === undefined ? "" : `status=${event.status}`,
+        event.durationMs === undefined ? "" : `duration_ms=${event.durationMs}`,
+        event.errorKind ? `error_kind=${event.errorKind}` : "",
+        event.retryable === undefined ? "" : `retryable=${event.retryable}`,
+        event.error ? `error=${event.error}` : "",
+      ].filter(Boolean);
+      console.debug(`[seacloudai-sandbox] ${parts.join(" ")}`);
+    }
   }
 }
 
@@ -714,6 +793,38 @@ function encodeConnectFrames(frames: StreamInputFrame[]): Uint8Array {
     offset += chunk.byteLength;
   }
   return merged;
+}
+
+function ensureRequestID(headers: Headers): string {
+  const existing = headers.get("X-Request-ID")?.trim();
+  if (existing) {
+    return existing;
+  }
+  const generated = generateRequestID();
+  headers.set("X-Request-ID", generated);
+  return generated;
+}
+
+function generateRequestID(): string {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  return `sdk-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function sanitizeDiagnosticPath(value: string): string {
+  const url = new URL(value);
+  for (const key of [...url.searchParams.keys()]) {
+    if (isSensitiveQueryKey(key)) {
+      url.searchParams.set(key, "<redacted>");
+    }
+  }
+  return `${url.pathname}${url.search}`;
+}
+
+function isSensitiveQueryKey(key: string): boolean {
+  const normalized = key.toLowerCase();
+  return normalized.includes("token") || normalized.includes("signature") || normalized === "api_key";
 }
 
 function toBase64(value: string): string {

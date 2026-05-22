@@ -296,6 +296,26 @@ console.log(sandbox.getHost(3000));
 - Frontend URL is unreachable: bind to `0.0.0.0`, confirm the port passed to `getHost(...)`, and inspect whether the background process exited.
 - Build with local files fails: make sure `Template.copy(...)` points to an existing local path and use `forceUpload: true` while iterating.
 
+## Diagnostics
+
+The SDK is quiet by default. Pass `debug: true` for stderr-style request diagnostics, or pass `logger` to receive structured, sanitized lifecycle events. Every SDK request carries `X-Request-ID`; response and error events include the same ID when available.
+
+```ts
+import { GatewayClient, type SDKDiagnosticEvent } from "@seacloudai/sandbox";
+
+const client = new GatewayClient({
+  baseUrl: process.env.SEACLOUD_BASE_URL,
+  apiKey: process.env.SEACLOUD_API_KEY,
+  logger: (event: SDKDiagnosticEvent) => {
+    console.log(event.type, event.method, event.path, event.requestId, event.status);
+  },
+});
+
+await client.listSandboxes({ limit: 10 });
+```
+
+Diagnostic events include method, path, request ID, status, duration, error kind, and retryability. They intentionally exclude request/response bodies and credential headers; sensitive query values such as tokens, signatures, and `api_key` are redacted.
+
 ## Production Readiness
 
 - Initialize environment variables once per process and reuse bound sandbox/template objects.

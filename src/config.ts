@@ -16,6 +16,8 @@ export interface GatewayOptions {
   fetch?: typeof fetch;
   requestTimeoutMs?: number;
   baseUrl?: string;
+  debug?: ClientOptions["debug"];
+  logger?: ClientOptions["logger"];
 }
 
 export function resolveGatewayBaseUrl(baseUrl?: string, domain?: string): string {
@@ -50,6 +52,8 @@ export function pickGatewayOptions(source: GatewayOptions): GatewayOptions {
     projectId: source.projectId,
     fetch: source.fetch,
     requestTimeoutMs: source.requestTimeoutMs,
+    debug: source.debug,
+    logger: source.logger,
   };
 }
 
@@ -60,6 +64,8 @@ export function resolveGatewayOptions(options: GatewayOptions = {}): ClientOptio
     projectId: resolveGatewayProjectId(options.projectId),
     fetch: options.fetch,
     timeoutMs: options.requestTimeoutMs,
+    debug: options.debug,
+    logger: options.logger,
   };
 }
 

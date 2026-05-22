@@ -1,4 +1,5 @@
-export type { ClientOptions } from "./core/transport.js";
+export type { ClientOptions, SDKDiagnosticEvent, SDKDiagnosticEventType, SDKLogger } from "./core/transport.js";
+export { GatewayClient } from "./gateway-client.js";
 export { SandboxRuntime } from "./runtime.js";
 export { TemplateBuildBuilder, templateBuild } from "./build/index.js";
 export { CodeContext, CodeExecution, PythonCodeContextManager, runCodeWithRuntime } from "./code-interpreter.js";

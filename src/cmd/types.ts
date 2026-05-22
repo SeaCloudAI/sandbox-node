@@ -1,3 +1,5 @@
+import type { SDKLogger } from "../core/transport.js";
+
 export type FileType =
   | "FILE_TYPE_UNSPECIFIED"
   | "FILE_TYPE_FILE"
@@ -19,6 +21,8 @@ export interface CmdOptions {
   accessToken?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
+  debug?: boolean;
+  logger?: SDKLogger;
 }
 
 export interface CmdRequestOptions {

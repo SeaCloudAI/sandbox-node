@@ -55,22 +55,26 @@ import {
 } from "./template.js";
 
 type SandboxCommandTarget = Pick<ControlSandbox | SandboxDetail, "envdUrl" | "envdAccessToken">;
-type BoundSandboxCreateOptions = Omit<SandboxCreateOptions, "fetch" | "requestTimeoutMs">;
+type BoundSandboxCreateOptions = Omit<SandboxCreateOptions, "fetch" | "requestTimeoutMs" | "debug" | "logger">;
 type BoundSandboxCreateOverrides = Omit<BoundSandboxCreateOptions, "template">;
-type BoundSandboxConnectOptions = Omit<SandboxConnectOptions, "fetch" | "requestTimeoutMs">;
-type BoundSandboxListOptions = Omit<SandboxListOptions, "fetch" | "requestTimeoutMs">;
-type BoundTemplateBuildOptions = Omit<TemplateBuildOptions, "fetch" | "requestTimeoutMs">;
-type BoundTemplateGetBuildStatusOptions = Omit<TemplateGetBuildStatusOptions, "fetch" | "requestTimeoutMs">;
+type BoundSandboxConnectOptions = Omit<SandboxConnectOptions, "fetch" | "requestTimeoutMs" | "debug" | "logger">;
+type BoundSandboxListOptions = Omit<SandboxListOptions, "fetch" | "requestTimeoutMs" | "debug" | "logger">;
+type BoundTemplateBuildOptions = Omit<TemplateBuildOptions, "fetch" | "requestTimeoutMs" | "debug" | "logger">;
+type BoundTemplateGetBuildStatusOptions = Omit<TemplateGetBuildStatusOptions, "fetch" | "requestTimeoutMs" | "debug" | "logger">;
 type BoundTemplateGetOptions = GetTemplateParams;
 
 export class GatewayClient extends SandboxControlService {
   readonly build: SandboxBuildService;
   readonly #fetchImpl: typeof fetch | undefined;
+  readonly #debug: boolean;
+  readonly #logger: ClientOptions["logger"] | undefined;
 
   constructor(options: ClientOptions) {
     super(options);
     this.build = new SandboxBuildService(options);
     this.#fetchImpl = options.fetch;
+    this.#debug = options.debug ?? false;
+    this.#logger = options.logger;
   }
 
   override async createSandbox(body: NewSandboxRequest, options: ControlRequestOptions = {}): Promise<SandboxInstance> {
@@ -102,6 +106,8 @@ export class GatewayClient extends SandboxControlService {
     return new SandboxCommandService({
       ...options,
       fetch: options.fetch ?? this.#fetchImpl,
+      debug: options.debug ?? this.#debug,
+      logger: options.logger ?? this.#logger,
     });
   }
 
@@ -111,6 +117,8 @@ export class GatewayClient extends SandboxControlService {
       accessToken: options.accessToken,
       fetch: options.fetch ?? this.#fetchImpl,
       timeoutMs: options.timeoutMs ?? this.timeoutMs,
+      debug: options.debug ?? this.#debug,
+      logger: options.logger ?? this.#logger,
     });
   }
 
@@ -136,6 +144,8 @@ export class GatewayClient extends SandboxControlService {
       accessToken: target.envdAccessToken ?? "",
       fetch: options.fetch ?? this.#fetchImpl,
       timeoutMs: options.timeoutMs ?? this.timeoutMs,
+      debug: options.debug ?? this.#debug,
+      logger: options.logger ?? this.#logger,
     });
   }
 
