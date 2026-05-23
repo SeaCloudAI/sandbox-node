@@ -29,7 +29,6 @@ export interface Sandbox {
   clientID: string;
   envdAccessToken: string | null;
   envdUrl: string | null;
-  namespace?: string;
   status: string;
   state?: string;
   startedAt: string;
@@ -54,7 +53,6 @@ export interface SandboxDetail {
   state?: string;
   lifecycle: SandboxLifecycle;
   volumeMounts?: VolumeMount[];
-  namespace?: string;
   activatedAt?: string | null;
 }
 
@@ -80,21 +78,6 @@ export interface ListSandboxesParams {
   state?: string[];
   limit?: number;
   nextToken?: string;
-}
-
-export interface SandboxMetricsRaw {
-  ts: number;
-  cpu_count: number;
-  cpu_used_pct: number;
-  mem_total: number;
-  mem_used: number;
-  mem_total_mib: number;
-  mem_used_mib: number;
-  mem_cache: number;
-  disk_used: number;
-  disk_total: number;
-  net_rx_bytes: number;
-  net_tx_bytes: number;
 }
 
 export interface SandboxMetricSnapshot {
@@ -138,7 +121,6 @@ export interface SandboxMetricSnapshot {
   networkSentDropsPerSecond?: number | null;
   taskCurrent?: number | null;
   taskMax?: number | null;
-  raw?: SandboxMetricsRaw;
 }
 
 export interface SandboxMetricsParams {

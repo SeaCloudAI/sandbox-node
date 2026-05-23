@@ -180,7 +180,6 @@ export interface TemplateResponse {
   nfsHostPath?: string;
   cpuLimitRatio?: number;
   memoryLimitRatio?: number;
-  namespace?: string;
   location?: string;
   envdBaseDomain?: string;
   runtimeClassName?: string;
@@ -288,8 +287,6 @@ export interface BuildLogsParams {
   limit?: number;
   direction?: "forward" | "backward";
   level?: string;
-  /** @deprecated Build logs are Loki-only; this option is accepted but ignored. */
-  source?: string;
 }
 
 export interface BuildLogsResponse {

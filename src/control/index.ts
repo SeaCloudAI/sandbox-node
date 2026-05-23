@@ -15,7 +15,6 @@ export type {
   SandboxDetail,
   SandboxMetricSnapshot,
   SandboxMetricsParams,
-  SandboxMetricsRaw,
   SandboxMetricsResponse,
   SandboxLogEntry,
   SandboxLogsParams,
