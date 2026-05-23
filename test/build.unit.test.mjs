@@ -308,7 +308,7 @@ test("unit: build request encoding and validation", async (t) => {
       }
       if (url.pathname.endsWith("/logs")) {
         assert.equal(url.searchParams.get("cursor"), "0");
-        assert.equal(url.searchParams.get("source"), "persistent");
+        assert.equal(url.searchParams.has("source"), false);
         return jsonResponse(200, { logs: [] });
       }
       if (url.pathname.endsWith("/builds/build-1")) {
@@ -328,7 +328,6 @@ test("unit: build request encoding and validation", async (t) => {
       limit: 10,
       direction: "forward",
       level: "info",
-      source: "persistent",
     });
 
     assert.equal(history.total, 0);
@@ -409,10 +408,6 @@ test("unit: build request encoding and validation", async (t) => {
     );
     await assert.rejects(
       service.getBuildStatus("tpl-1", "build-1", { limit: 101 }),
-      ValidationError,
-    );
-    await assert.rejects(
-      service.getBuildLogs("tpl-1", "build-1", { source: "invalid" }),
       ValidationError,
     );
     await assert.rejects(
@@ -547,7 +542,7 @@ test("unit: build request encoding and validation", async (t) => {
     await service.getTemplate("tpl-1", { limit: 100, nextToken: "" });
     await service.createBuild("tpl-1", buildID);
     await service.getBuildStatus("tpl-1", "build-1", { logsOffset: 0, limit: 100 });
-    await service.getBuildLogs("tpl-1", "build-1", { cursor: 0, limit: 100, direction: "backward", source: "temporary" });
+    await service.getBuildLogs("tpl-1", "build-1", { cursor: 0, limit: 100, direction: "backward" });
     await service.getBuildFile("tpl-1", "a".repeat(64));
 
     assert.equal(calls.length, 8);

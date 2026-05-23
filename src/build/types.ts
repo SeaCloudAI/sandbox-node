@@ -288,7 +288,8 @@ export interface BuildLogsParams {
   limit?: number;
   direction?: "forward" | "backward";
   level?: string;
-  source?: "temporary" | "persistent";
+  /** @deprecated Build logs are Loki-only; this option is accepted but ignored. */
+  source?: string;
 }
 
 export interface BuildLogsResponse {

@@ -430,9 +430,6 @@ export class SandboxBuildService extends BaseTransport {
     if (params.direction !== undefined && !["forward", "backward"].includes(params.direction)) {
       throw new ValidationError('build logs direction must be "forward" or "backward"');
     }
-    if (params.source !== undefined && !["temporary", "persistent"].includes(params.source)) {
-      throw new ValidationError('build logs source must be "temporary" or "persistent"');
-    }
   }
 }
 
@@ -562,9 +559,6 @@ function encodeBuildLogsParams(params: BuildLogsParams): URLSearchParams {
   }
   if (params.level?.trim()) {
     query.set("level", params.level.trim());
-  }
-  if (params.source?.trim()) {
-    query.set("source", params.source.trim());
   }
   return query;
 }
