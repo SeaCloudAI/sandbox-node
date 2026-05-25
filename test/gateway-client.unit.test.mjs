@@ -71,6 +71,17 @@ test("unit: system endpoints", async (t) => {
           templates: { resource: "templates", user: { limits: { concurrentBuilds: { limit: 3, used: 0, remaining: 3, enforced: true } } } },
         },
         availability: { sandboxes: { status: "available" }, templates: { status: "available" } },
+        checks: [{
+          status: "exhausted",
+          scope: "user",
+          resource: "templates",
+          metric: "concurrentBuilds",
+          used: 3,
+          limit: 3,
+          remaining: 0,
+          message: "User concurrent build quota is exhausted.",
+          usageEndpoint: "/api/v1/usage/template-limits",
+        }],
         endpoints: {
           sandboxUsage: "/api/v1/usage/limits",
           templateUsage: "/api/v1/usage/template-limits",
@@ -85,6 +96,7 @@ test("unit: system endpoints", async (t) => {
     assert.equal(summary.projectID, "project-1");
     assert.equal(summary.usage.sandboxes.resource, "sandboxes");
     assert.equal(summary.usage.templates.user.limits.concurrentBuilds.remaining, 3);
+    assert.equal(summary.checks[0].metric, "concurrentBuilds");
   });
 });
 

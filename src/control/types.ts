@@ -175,6 +175,18 @@ export interface ObservabilitySignal {
   message?: string;
 }
 
+export interface ObservabilityCheck {
+  status: "warning" | "exhausted" | string;
+  scope: "user" | "project" | string;
+  resource: string;
+  metric: string;
+  used: number;
+  limit: number;
+  remaining: number;
+  message: string;
+  usageEndpoint: string;
+}
+
 export interface ObservabilitySummary {
   status: "ok" | "degraded" | string;
   projectID?: string;
@@ -184,6 +196,7 @@ export interface ObservabilitySummary {
     templates?: TemplateUsageLimits;
   };
   availability: Record<string, ObservabilitySignal>;
+  checks: ObservabilityCheck[];
   endpoints: {
     sandboxUsage: string;
     templateUsage: string;

@@ -57,6 +57,7 @@ export type {
   WriteInfo,
 } from "./sandbox-facade.js";
 export type {
+  ObservabilityCheck,
   ObservabilitySignal,
   ObservabilitySummary,
   SandboxUsageLimits,
