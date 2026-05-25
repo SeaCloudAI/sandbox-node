@@ -4,7 +4,22 @@ interface RawErrorResponse {
   code?: number;
   message?: string;
   request_id?: string;
+  requestID?: string;
   error?: ErrorDetail;
+  details?: unknown;
+}
+
+export interface UsageLimitDiagnostic {
+  reason: "usage_limit" | string;
+  scope?: string;
+  resource?: string;
+  metric?: string;
+  used?: number;
+  limit?: number;
+  remaining: number;
+  resetAt?: string;
+  retryable: boolean;
+  usageEndpoint?: string;
 }
 
 export class SandboxError extends Error {
@@ -53,6 +68,8 @@ export class APIError extends SandboxError {
   readonly code?: number;
   readonly requestId?: string;
   readonly detail?: ErrorDetail;
+  readonly details?: unknown;
+  readonly usageLimit?: UsageLimitDiagnostic;
   readonly body: string;
   readonly kind: APIErrorKind;
 
@@ -62,6 +79,7 @@ export class APIError extends SandboxError {
     code?: number;
     requestId?: string;
     detail?: ErrorDetail;
+    details?: unknown;
     body?: string;
     kind?: APIErrorKind;
   }) {
@@ -71,6 +89,8 @@ export class APIError extends SandboxError {
     this.code = options.code;
     this.requestId = options.requestId;
     this.detail = options.detail;
+    this.details = options.details;
+    this.usageLimit = parseUsageLimitDiagnostic(options.details);
     this.body = options.body ?? "";
     this.kind = options.kind ?? classifyAPIError(options.statusCode);
   }
@@ -95,8 +115,9 @@ export class APIError extends SandboxError {
       statusCode: response.status,
       message: parsed?.message || response.statusText || `HTTP ${response.status}`,
       code: parsed?.code,
-      requestId: parsed?.request_id,
+      requestId: parsed?.requestID || parsed?.request_id,
       detail: parsed?.error,
+      details: parsed?.details,
       body,
     });
   }
@@ -207,4 +228,15 @@ function detailMessage(detail: ErrorDetail | undefined): string {
     return detail;
   }
   return detail?.details || detail?.message || "";
+}
+
+function parseUsageLimitDiagnostic(value: unknown): UsageLimitDiagnostic | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  if (record.reason !== "usage_limit") {
+    return undefined;
+  }
+  return record as unknown as UsageLimitDiagnostic;
 }

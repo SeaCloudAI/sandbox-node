@@ -6,6 +6,7 @@ import { GatewayClient } from "../dist/gateway-client.js";
 import {
   APIError,
   NotFoundError,
+  RateLimitError,
   RequestTimeoutError,
   ValidationError,
 } from "../dist/core/index.js";
@@ -715,6 +716,36 @@ test("unit: validations and errors", async (t) => {
       assert.ok(error instanceof NotFoundError);
       assert.equal(error.kind, "not_found");
       assert.equal(error.retryable, false);
+      return true;
+    });
+  });
+
+  await t.test("rate limit errors expose public diagnostics", async () => {
+    const errorClient = createGatewayClient(async () => jsonResponse(429, {
+      code: 429,
+      message: "sandbox limit exceeded",
+      requestID: "req-camel",
+      details: {
+        reason: "usage_limit",
+        scope: "project",
+        resource: "sandboxes",
+        metric: "dailyCreates",
+        used: 101,
+        limit: 100,
+        remaining: 0,
+        usageEndpoint: "/api/v1/usage/limits",
+      },
+    }));
+
+    await assert.rejects(errorClient.createSandbox({ templateID: "tpl" }), (error) => {
+      assert.ok(error instanceof APIError);
+      assert.ok(error instanceof RateLimitError);
+      assert.equal(error.requestId, "req-camel");
+      assert.equal(error.details.scope, "project");
+      assert.equal(error.details.metric, "dailyCreates");
+      assert.equal(error.details.usageEndpoint, "/api/v1/usage/limits");
+      assert.equal(error.usageLimit.scope, "project");
+      assert.equal(error.usageLimit.metric, "dailyCreates");
       return true;
     });
   });

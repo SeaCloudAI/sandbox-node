@@ -658,7 +658,7 @@ Useful CMD helpers from `@seacloudai/sandbox/cmd`:
 - Sandbox lifecycle helpers use `timeout` seconds; runtime helpers keep per-operation `timeoutMs` settings. Per-request runtime HTTP overrides are available in `CmdRequestOptions.requestTimeoutMs`.
 - The bound sandbox exposes `trafficAccessToken` as an E2B-style alias of the runtime access token returned by the gateway.
 - `waitReady: true` can take longer than the default lifecycle wait in production; pass a larger `timeout` on high-level create/connect calls for long-wait workflows.
-- HTTP errors are classified into typed errors such as `NotFoundError`, `RateLimitError`, and `ServerError`. Transport timeouts raise `RequestTimeoutError`.
+- HTTP errors are classified into typed errors such as `NotFoundError`, `RateLimitError`, and `ServerError`. Transport timeouts raise `RequestTimeoutError`. Quota `429` responses expose `error.details` and typed `error.usageLimit` when the gateway returns public limit diagnostics.
 - High-level `kill()` helpers send `SIGNAL_SIGKILL` and return `false` when the runtime reports a missing process through either `404` or `ESRCH`.
 - PTY handles normalize reconnect output into `pty` even when the runtime emits the bytes through `stdout` / `stderr`.
 - Sandbox lifecycle timeout is validated to `0..86400` seconds; refresh duration to `0..3600` seconds.
