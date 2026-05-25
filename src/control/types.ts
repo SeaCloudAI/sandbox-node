@@ -22,6 +22,19 @@ export interface SandboxLifecycle {
   onTimeout: "kill" | "pause";
 }
 
+export interface SandboxTimelineEvent {
+  phase: string;
+  status: "completed" | "in_progress" | "failed" | string;
+  timestamp: string;
+  message?: string;
+}
+
+export interface SandboxDiagnostic {
+  reason: string;
+  message: string;
+  recommendation?: string;
+}
+
 export interface Sandbox {
   templateID: string;
   sandboxID: string;
@@ -34,6 +47,8 @@ export interface Sandbox {
   startedAt: string;
   activatedAt?: string | null;
   endAt: string;
+  timeline?: SandboxTimelineEvent[];
+  diagnostic?: SandboxDiagnostic;
 }
 
 export interface SandboxDetail {
@@ -54,6 +69,8 @@ export interface SandboxDetail {
   lifecycle: SandboxLifecycle;
   volumeMounts?: VolumeMount[];
   activatedAt?: string | null;
+  timeline?: SandboxTimelineEvent[];
+  diagnostic?: SandboxDiagnostic;
 }
 
 export interface ListedSandbox {
@@ -71,6 +88,8 @@ export interface ListedSandbox {
   state?: string;
   volumeMounts?: VolumeMount[];
   activatedAt?: string | null;
+  timeline?: SandboxTimelineEvent[];
+  diagnostic?: SandboxDiagnostic;
 }
 
 export interface ListSandboxesParams {
@@ -187,6 +206,14 @@ export interface ObservabilityCheck {
   usageEndpoint: string;
 }
 
+export interface ObservabilityAction {
+  status: "unavailable" | "review" | "limit_reached" | string;
+  scope?: "user" | "project" | string;
+  resource?: string;
+  message: string;
+  endpoint?: string;
+}
+
 export interface ObservabilitySummary {
   status: "ok" | "degraded" | string;
   projectID?: string;
@@ -197,10 +224,14 @@ export interface ObservabilitySummary {
   };
   availability: Record<string, ObservabilitySignal>;
   checks: ObservabilityCheck[];
+  actions: ObservabilityAction[];
   endpoints: {
     sandboxUsage: string;
     templateUsage: string;
+    sandboxDetail?: string;
+    sandboxMetrics?: string;
     sandboxLogs: string;
+    buildStatus?: string;
     buildLogs: string;
   };
 }

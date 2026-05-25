@@ -82,10 +82,20 @@ test("unit: system endpoints", async (t) => {
           message: "User concurrent build quota is exhausted.",
           usageEndpoint: "/api/v1/usage/template-limits",
         }],
+        actions: [{
+          status: "limit_reached",
+          scope: "user",
+          resource: "templates",
+          message: "User concurrent build quota is exhausted. Review current usage before retrying.",
+          endpoint: "/api/v1/usage/template-limits",
+        }],
         endpoints: {
           sandboxUsage: "/api/v1/usage/limits",
           templateUsage: "/api/v1/usage/template-limits",
+          sandboxDetail: "/api/v1/sandboxes/{sandboxID}",
+          sandboxMetrics: "/api/v1/sandboxes/{sandboxID}/metrics",
           sandboxLogs: "/api/v1/sandboxes/{sandboxID}/logs",
+          buildStatus: "/api/v1/templates/{templateID}/builds/{buildID}/status",
           buildLogs: "/api/v1/templates/{templateID}/builds/{buildID}/logs",
         },
       });
@@ -97,6 +107,8 @@ test("unit: system endpoints", async (t) => {
     assert.equal(summary.usage.sandboxes.resource, "sandboxes");
     assert.equal(summary.usage.templates.user.limits.concurrentBuilds.remaining, 3);
     assert.equal(summary.checks[0].metric, "concurrentBuilds");
+    assert.equal(summary.actions[0].status, "limit_reached");
+    assert.equal(summary.endpoints.buildStatus, "/api/v1/templates/{templateID}/builds/{buildID}/status");
   });
 });
 
@@ -323,6 +335,14 @@ test("unit: sandbox request encoding", async (t) => {
         envdUrl: "https://sandbox-gateway.cloud.seaart.ai",
         envdAccessToken: "unit-runtime-auth",
         activatedAt: "2026-01-01T00:00:10Z",
+        timeline: [
+          { phase: "created", status: "completed", timestamp: "2026-01-01T00:00:00Z" },
+          { phase: "ready", status: "completed", timestamp: "2026-01-01T00:00:10Z" },
+        ],
+        diagnostic: {
+          reason: "waiting_for_ready",
+          message: "Sandbox is waiting to become ready.",
+        },
       });
     });
 
@@ -344,6 +364,8 @@ test("unit: sandbox request encoding", async (t) => {
     await client.deleteSandbox("sb-1");
 
     assert.equal(connected.statusCode, 201);
+    assert.equal(detail.timeline[1].phase, "ready");
+    assert.equal(detail.diagnostic.reason, "waiting_for_ready");
     assert.equal(detail.activatedAt, "2026-01-01T00:00:10Z");
     assert.equal(heartbeat.requestId, "req-1");
     assert.equal(calls[0].url, "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes/sb-1");

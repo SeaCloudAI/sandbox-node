@@ -141,6 +141,7 @@ export interface BuildResponse {
   createdAt: string;
   updatedAt: string;
   finishedAt?: string | null;
+  timeline?: BuildTimelineEvent[];
 }
 
 export interface TemplateResponse {
@@ -280,6 +281,23 @@ export interface BuildStatusResponse {
   logs: string[];
   logEntries: BuildLogEntry[];
   reason: unknown;
+  timeline?: BuildTimelineEvent[];
+  steps?: BuildStepSummary[];
+}
+
+export interface BuildTimelineEvent {
+  phase: string;
+  status: "completed" | "in_progress" | "failed" | string;
+  timestamp: string;
+  message?: string;
+}
+
+export interface BuildStepSummary {
+  step: string;
+  status: "completed" | "in_progress" | "failed" | string;
+  logCount: number;
+  lastTimestamp?: string;
+  lastMessage?: string;
 }
 
 export interface BuildLogsParams {

@@ -302,6 +302,13 @@ test("unit: build request encoding and validation", async (t) => {
             message: "building image",
           }],
           reason: null,
+          timeline: [
+            { phase: "created", status: "completed", timestamp: "2026-01-01T00:00:00Z" },
+            { phase: "building", status: "in_progress", timestamp: "2026-01-01T00:00:01Z" },
+          ],
+          steps: [
+            { step: "build", status: "in_progress", logCount: 1, lastMessage: "building image" },
+          ],
           createdAt: "2026-01-01T00:00:00Z",
           updatedAt: "2026-01-01T00:00:01Z",
         });
@@ -333,6 +340,8 @@ test("unit: build request encoding and validation", async (t) => {
     assert.equal(history.total, 0);
     assert.equal(build.buildID, "build-1");
     assert.equal(status.logEntries[0].message, "building image");
+    assert.equal(status.timeline[1].phase, "building");
+    assert.equal(status.steps[0].status, "in_progress");
     assert.deepEqual(status.logs, ["raw-line"]);
     assert.deepEqual(logs.logs, []);
   });

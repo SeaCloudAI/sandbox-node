@@ -14,6 +14,8 @@ export type {
   BuildStatusParams,
   BuildStatusResponse,
   BuildStep,
+  BuildStepSummary,
+  BuildTimelineEvent,
   BuildTriggerResponse,
   DeleteTemplateTagsRequest,
   FilePresenceResponse,

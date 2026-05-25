@@ -58,9 +58,12 @@ export type {
 } from "./sandbox-facade.js";
 export type {
   LogDiagnostic,
+  ObservabilityAction,
   ObservabilityCheck,
   ObservabilitySignal,
   ObservabilitySummary,
+  SandboxDiagnostic,
+  SandboxTimelineEvent,
   SandboxUsageLimits,
   TemplateUsageLimits,
   UsageLimitScope,
@@ -68,6 +71,8 @@ export type {
 } from "./control/types.js";
 export type {
   BuildLogDiagnostic,
+  BuildStepSummary,
+  BuildTimelineEvent,
   RegistryConfig,
   AWSRegistryConfig,
   GCPRegistryConfig,
