@@ -40,6 +40,7 @@ import type {
   ProcessSelector,
   ProcessStartRequest,
   ProcessStreamFrame,
+  ProcessStreamTextFrame,
   ProxyRequest,
   RemoveRequest,
   RemoveWatcherRequest,
@@ -169,6 +170,11 @@ export class ProcessStream {
 
   next(): Promise<ProcessStreamFrame | null> {
     return this.#reader.nextJson<ProcessStreamFrame>();
+  }
+
+  async nextText(): Promise<ProcessStreamTextFrame | null> {
+    const frame = await this.next();
+    return frame ? decodeProcessStreamFrame(frame) : null;
   }
 }
 
@@ -450,9 +456,29 @@ export class SandboxCommandService {
     await this.#connectEmpty("/process.Process/SendInput", request, options);
   }
 
+  async sendStdinText(
+    process: ProcessSelector,
+    data: string | Uint8Array,
+    options: CmdRequestOptions = {},
+  ): Promise<void> {
+    await this.sendInput({ process, input: { stdin: encodeProcessInputText(data) } }, options);
+  }
+
+  async sendPtyText(
+    process: ProcessSelector,
+    data: string | Uint8Array,
+    options: CmdRequestOptions = {},
+  ): Promise<void> {
+    await this.sendInput({ process, input: { pty: encodeProcessInputText(data) } }, options);
+  }
+
   async sendSignal(request: SendSignalRequest, options: CmdRequestOptions = {}): Promise<void> {
     this.#validateSelector(request.process);
-    await this.#connectEmpty("/process.Process/SendSignal", request, options);
+    await this.#connectEmpty(
+      "/process.Process/SendSignal",
+      { ...request, signal: normalizeProcessSignal(request.signal) },
+      options,
+    );
   }
 
   async closeStdin(request: { process: ProcessSelector }, options: CmdRequestOptions = {}): Promise<void> {
@@ -797,6 +823,70 @@ function encodeConnectFrames(frames: StreamInputFrame[]): Uint8Array {
     offset += chunk.byteLength;
   }
   return merged;
+}
+
+export function encodeProcessInputText(data: string | Uint8Array): string {
+  const bytes = typeof data === "string" ? textEncoder.encode(data) : data;
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.byteLength; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, offset + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+export function decodeProcessOutputText(value: string | undefined): string {
+  if (!value) {
+    return "";
+  }
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return textDecoder.decode(bytes);
+}
+
+export function decodeProcessStreamFrame(frame: ProcessStreamFrame): ProcessStreamTextFrame {
+  if ("data" in frame.event) {
+    return {
+      raw: frame,
+      event: {
+        data: {
+          stdout: decodeProcessOutputText(frame.event.data.stdout),
+          stderr: decodeProcessOutputText(frame.event.data.stderr),
+          pty: decodeProcessOutputText(frame.event.data.pty),
+        },
+      },
+    };
+  }
+  return { raw: frame, event: frame.event };
+}
+
+function normalizeProcessSignal(signal: string): string {
+  const normalized = signal.trim().toUpperCase();
+  switch (normalized) {
+    case "TERM":
+    case "SIGTERM":
+    case "SIGNAL_SIGTERM":
+      return "SIGNAL_SIGTERM";
+    case "KILL":
+    case "SIGKILL":
+    case "SIGNAL_SIGKILL":
+      return "SIGNAL_SIGKILL";
+    case "INT":
+    case "SIGINT":
+      return "SIGINT";
+    case "HUP":
+    case "SIGHUP":
+      return "SIGHUP";
+    case "UNSPECIFIED":
+    case "SIGNAL_UNSPECIFIED":
+      return "SIGNAL_UNSPECIFIED";
+    default:
+      return signal;
+  }
 }
 
 function ensureRequestID(headers: Headers): string {

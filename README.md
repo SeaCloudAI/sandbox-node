@@ -295,6 +295,8 @@ console.log(sandbox.getHost(3000));
 - `waitReady` or builds time out: increase lifecycle `timeout` and SDK HTTP `requestTimeoutMs` for long starts or image builds.
 - Frontend URL is unreachable: bind to `0.0.0.0`, confirm the port passed to `getHost(...)`, and inspect whether the background process exited.
 - Build with local files fails: make sure `Template.copy(...)` points to an existing local path and use `forceUpload: true` while iterating.
+- Public template creation returns `volumeMounts is required`: create custom templates with an explicit workspace mount. The common runtime workspace is `/root/workspace`, and the simplest storage type is `ephemeral`.
+- Filesystem watcher APIs can be unavailable on network-backed workspaces. In that case, use normal file reads/listing or retry on a template with a local filesystem workspace.
 
 ## Diagnostics
 
@@ -462,7 +464,7 @@ Bound sandbox helpers currently include:
   `getInfo()` / `list()` / `rename()` return normalized entries with `type: "file" | "dir" | "symlink"` and `modifiedTime?: Date`.
   `write()` / `writeFiles()` return E2B-style `WriteInfo` objects with `name`, `path`, and `type`.
   File methods accept `user`; `makeDir()` returns `false` when the path already exists.
-  `watchDir(path, onEvent, opts)` follows the E2B callback + handle flow and returns a `WatchHandle` with `stop()`. It also supports `user`, `timeoutMs`, and `onExit`.
+  `watchDir(path, onEvent, opts)` follows the E2B callback + handle flow and returns a `WatchHandle` with `stop()`. It also supports `user`, `timeoutMs`, and `onExit`. Some workspace storage backends do not support filesystem watching; treat watcher failures as a capability check rather than a general filesystem failure.
 - git module: `clone`, `pull`, `checkout`, `status`
 - pty module: `create`, `connect`, `kill`, `sendStdin`, `sendInput`, `resize`
   `pty.connect(pid, { onStdout, onStderr })` attaches output callbacks when reconnecting to a PTY.
@@ -486,6 +488,8 @@ Low-level methods remain available when you need tighter request control:
 
 Low-level subpath modules remain available when you need direct request/response types or tighter transport control.
 
+Low-level process RPCs expose the wire protocol, where streamed process input and output are base64-encoded. Prefer high-level `sandbox.commands` / `sandbox.pty` for normal use. If you need `@seacloudai/sandbox/cmd` directly, use `sendStdinText(...)`, `sendPtyText(...)`, `ProcessStream.nextText()`, `encodeProcessInputText(...)`, and `decodeProcessOutputText(...)` to work with plain text. `sendSignal(...)` accepts E2B signal names such as `SIGNAL_SIGTERM` and common aliases such as `TERM` or `SIGTERM`.
+
 ## API Surface
 
 ### Control Plane APIs
@@ -494,6 +498,37 @@ Low-level subpath modules remain available when you need direct request/response
 - follow-up control actions from the returned object: `reload()`, `connect()`, `resume()`, `getInfo()`, `getFullInfo()`, `getMetrics()`, `getHost()`, `logs()`, `pause()`, `refresh()`, `setTimeout()`, `kill()`, `delete()`, `isRunning()`
 - low-level control module: `SandboxControlService` from `@seacloudai/sandbox/control`
 - low-level service methods: `metrics`, `shutdown`, `createSandbox`, `listSandboxes`, `getSandbox`, `getSandboxMetrics`, `listSandboxMetrics`, `deleteSandbox`, `getSandboxLogs`, `pauseSandbox`, `connectSandbox`, `setSandboxTimeout`, `refreshSandbox`, `sendHeartbeat`
+
+### Template Creation Notes
+
+When creating custom templates through the low-level build service, include an explicit workspace volume mount. This mirrors the platform runtime contract and avoids ambiguous storage defaults:
+
+```ts
+import { SandboxBuildService } from "@seacloudai/sandbox/build";
+
+const build = new SandboxBuildService({
+  baseUrl: process.env.SEACLOUD_BASE_URL,
+  apiKey: process.env.SEACLOUD_API_KEY,
+});
+
+const created = await build.createTemplate({
+  name: "my-template",
+  tags: ["dev"],
+  cpuCount: 1,
+  memoryMB: 512,
+  extensions: {
+    baseTemplateID: "tpl-...",
+    workdir: "/root/workspace",
+    volumeMounts: [
+      { name: "workspace", path: "/root/workspace", storageType: "ephemeral" },
+    ],
+  },
+});
+
+console.log(created.templateID, created.buildID);
+```
+
+Supported public storage types are `ephemeral`, `nfs`, `block`, and `object`; non-ephemeral storage can require additional fields configured by your platform environment.
 
 ### Monitoring And Metrics
 

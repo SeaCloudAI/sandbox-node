@@ -223,6 +223,17 @@ export interface ProcessStreamFrame {
   event: ProcessEvent;
 }
 
+export type ProcessTextEvent =
+  | { start: { pid: number; cmdId: string } }
+  | { data: { stdout?: string; stderr?: string; pty?: string } }
+  | { end: { exited: boolean; status: string; error: string | null } }
+  | { keepalive: Record<string, never> };
+
+export interface ProcessStreamTextFrame {
+  event: ProcessTextEvent;
+  raw: ProcessStreamFrame;
+}
+
 export type StreamInputFrame =
   | { start: { process: ProcessSelector } }
   | { data: { input: ProcessInput } }

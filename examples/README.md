@@ -15,6 +15,7 @@ Before running any example, export these variables once in your shell. Use the g
 
 Example-specific inputs intentionally use the `SANDBOX_EXAMPLE_*` prefix so they do not collide with the production-oriented variables shown in the package `README.md`.
 Examples focus on the stable lifecycle, template, command, and PTY flows. Watcher APIs are covered in tests instead, because some sandbox filesystem layouts reject them entirely.
+Custom template creation examples include an explicit `/root/workspace` mount because public template creation requires a workspace volume in current SeaCloudAI environments.
 
 Recommended reading order:
 

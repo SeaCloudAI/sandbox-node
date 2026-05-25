@@ -10,6 +10,11 @@ import {
   RequestTimeoutError,
   ValidationError,
 } from "../dist/core/index.js";
+import {
+  decodeProcessOutputText,
+  decodeProcessStreamFrame,
+  encodeProcessInputText,
+} from "../dist/cmd/index.js";
 
 function createGatewayClient(handler) {
   return new GatewayClient({
@@ -1077,6 +1082,58 @@ test("unit: cmd sdk", async (t) => {
 
     assert.equal(first.event.start.cmdId, "cmd-1");
     assert.ok(second.event.data.stdout);
+  });
+
+  await t.test("process text helpers hide base64 protocol details", async () => {
+    const sendInputs = [];
+    const signals = [];
+    const cmd = createCmdService(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/process.Process/Start") {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(connectFrame({ event: { start: { pid: 1234, cmdId: "cmd-1" } } }));
+            controller.enqueue(connectFrame({ event: { data: { stdout: Buffer.from("hello\n").toString("base64") } } }));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { "content-type": "application/connect+json" },
+        });
+      }
+      if (url.pathname === "/process.Process/SendInput") {
+        sendInputs.push(JSON.parse(init.body));
+        return jsonResponse(200, {});
+      }
+      if (url.pathname === "/process.Process/SendSignal") {
+        signals.push(JSON.parse(init.body));
+        return jsonResponse(200, {});
+      }
+      throw new Error(`unexpected request: ${String(input)} ${init.method}`);
+    });
+
+    assert.equal(decodeProcessOutputText(encodeProcessInputText("中文\n")), "中文\n");
+    assert.equal(
+      decodeProcessStreamFrame({ event: { data: { stdout: Buffer.from("decoded").toString("base64") } } }).event.data.stdout,
+      "decoded",
+    );
+
+    const stream = await cmd.start({ process: { cmd: "echo", args: ["hello"] } });
+    const first = await stream.nextText();
+    const second = await stream.nextText();
+    await stream.close();
+    await cmd.sendStdinText({ pid: 1234 }, "input\n");
+    await cmd.sendPtyText({ pid: 1234 }, "pty\n");
+    await cmd.sendSignal({ process: { pid: 1234 }, signal: "TERM" });
+
+    assert.equal(first.event.start.cmdId, "cmd-1");
+    assert.equal(second.event.data.stdout, "hello\n");
+    assert.deepEqual(sendInputs, [
+      { process: { pid: 1234 }, input: { stdin: Buffer.from("input\n").toString("base64") } },
+      { process: { pid: 1234 }, input: { pty: Buffer.from("pty\n").toString("base64") } },
+    ]);
+    assert.deepEqual(signals, [{ process: { pid: 1234 }, signal: "SIGNAL_SIGTERM" }]);
   });
 
   await t.test("watchDir skips keepalive frames and stops on end stream", async () => {

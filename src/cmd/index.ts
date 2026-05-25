@@ -1,4 +1,12 @@
-export { ConnectFrame, FilesystemWatchStream, ProcessStream, SandboxCommandService } from "./service.js";
+export {
+  ConnectFrame,
+  FilesystemWatchStream,
+  ProcessStream,
+  SandboxCommandService,
+  decodeProcessOutputText,
+  decodeProcessStreamFrame,
+  encodeProcessInputText,
+} from "./service.js";
 export type {
   AgentRunRequest,
   AgentRunResponse,
@@ -41,6 +49,8 @@ export type {
   ProcessSelector,
   ProcessStartRequest,
   ProcessStreamFrame,
+  ProcessStreamTextFrame,
+  ProcessTextEvent,
   ProxyRequest,
   PtyConfig,
   PtySize,
