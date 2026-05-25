@@ -220,8 +220,23 @@ export interface SandboxLogEntry {
   fields: Record<string, string>;
 }
 
+export interface LogDiagnostic {
+  reason: "filters_applied" | "cursor_window_empty" | "no_logs_yet" | string;
+  message: string;
+}
+
 export interface SandboxLogsResponse {
   logs: SandboxLogEntry[];
+  nextCursor?: number;
+  hasMore?: boolean;
+  query?: {
+    sandboxID?: string;
+    direction?: string;
+    limit?: number;
+    level?: string;
+    search?: string;
+  };
+  diagnostic?: LogDiagnostic;
 }
 
 export interface ConnectSandboxRequest {

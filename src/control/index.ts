@@ -19,6 +19,7 @@ export type {
   SandboxLogEntry,
   SandboxLogsParams,
   SandboxLogsResponse,
+  LogDiagnostic,
   TimeoutRequest,
   VolumeMount,
 } from "./types.js";

@@ -57,6 +57,7 @@ export type {
   WriteInfo,
 } from "./sandbox-facade.js";
 export type {
+  LogDiagnostic,
   ObservabilityCheck,
   ObservabilitySignal,
   ObservabilitySummary,
@@ -66,6 +67,7 @@ export type {
   UsageLimitValue,
 } from "./control/types.js";
 export type {
+  BuildLogDiagnostic,
   RegistryConfig,
   AWSRegistryConfig,
   GCPRegistryConfig,

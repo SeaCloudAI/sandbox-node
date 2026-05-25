@@ -5,6 +5,7 @@ export type {
   AssignedTemplateTags,
   AssignTemplateTagsRequest,
   BuildHistoryResponse,
+  BuildLogDiagnostic,
   BuildLogEntry,
   BuildLogsParams,
   BuildLogsResponse,

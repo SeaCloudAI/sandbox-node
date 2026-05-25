@@ -289,8 +289,23 @@ export interface BuildLogsParams {
   level?: string;
 }
 
+export interface BuildLogDiagnostic {
+  reason: "filters_applied" | "cursor_window_empty" | "no_logs_yet" | string;
+  message: string;
+}
+
 export interface BuildLogsResponse {
   logs: BuildLogEntry[];
+  nextCursor?: number;
+  hasMore?: boolean;
+  query?: {
+    templateID?: string;
+    buildID?: string;
+    direction?: string;
+    limit?: number;
+    level?: string;
+  };
+  diagnostic?: BuildLogDiagnostic;
 }
 
 export interface AssignTemplateTagsRequest {

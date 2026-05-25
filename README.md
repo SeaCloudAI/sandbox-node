@@ -553,7 +553,7 @@ const summary = await client.getObservabilitySummary();
 console.log(summary.status, summary.usage?.sandboxes, summary.usage?.templates);
 ```
 
-The summary intentionally returns public product fields only. Use the endpoint hints from `summary.endpoints` for sandbox logs, build logs, and full usage-limit checks.
+The summary intentionally returns public product fields only. Use the endpoint hints from `summary.endpoints` for sandbox logs, build logs, and full usage-limit checks. Empty sandbox or build log responses may include a public `diagnostic` object explaining whether filters, cursor position, or lack of output caused the empty result.
 
 ### Operator APIs
 
@@ -588,7 +588,7 @@ Low-level `SandboxBuildService` from `@seacloudai/sandbox/build` exposes:
 - builds: `createBuild`, `getBuildFile`, `rollbackTemplate`, `listBuilds`, `getBuild`, `getBuildStatus`, `getBuildLogs`
 - tags: `assignTemplateTags`, `deleteTemplateTags`, `listTemplateTags`
 
-Build logs are served by the platform log API. `getBuildLogs` returns structured log entries without exposing the underlying log storage.
+Build logs are served by the platform log API. `getBuildLogs` returns structured log entries, pagination metadata, and an optional empty-result diagnostic without exposing the underlying log storage.
 
 The public template contract is split into three layers: E2B create fields (`name`, `tags`, `cpuCount`, `memoryMB`), Atlas extension fields under `extensions` (`baseTemplateID`, `visibility`, `envs`, `volumeMounts`, `workdir`), E2B update field `public`, and build-only fields on `createBuild` (`fromImage`, `fromTemplate`, `steps`, `tags`, `startCmd`, `readyCmd`, registry credentials, `steps[].filesHash`).
 Template tags are version pointers to build artifacts. Build requests without explicit tags use `default`; `assignTemplateTags("template:v1", ["stable"])` moves `stable` to the build behind `v1`, and sandboxes can reference `template:stable` or `template:buildID`.

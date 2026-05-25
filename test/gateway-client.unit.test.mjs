@@ -306,7 +306,14 @@ test("unit: sandbox request encoding", async (t) => {
         });
       }
       if (url.endsWith("/logs?cursor=0&limit=10&direction=forward&level=info&search=health")) {
-        return jsonResponse(200, { logs: [] });
+        return jsonResponse(200, {
+          logs: [],
+          hasMore: false,
+          diagnostic: {
+            reason: "filters_applied",
+            message: "No sandbox logs matched the current filters. Try removing search or level filters.",
+          },
+        });
       }
       if (init.method === "DELETE" || url.endsWith("/pause") || url.endsWith("/timeout") || url.endsWith("/refreshes")) {
         return new Response(null, { status: 204 });
@@ -320,13 +327,14 @@ test("unit: sandbox request encoding", async (t) => {
     });
 
     const detail = await client.getSandbox("sb-1");
-    await client.getSandboxLogs("sb-1", {
+    const logs = await client.getSandboxLogs("sb-1", {
       cursor: 0,
       limit: 10,
       direction: "forward",
       level: "info",
       search: "health",
     });
+    assert.equal(logs.diagnostic.reason, "filters_applied");
     await client.pauseSandbox("sb-1");
     const connected = await client.connectSandbox("sb-1", { timeout: 1200 });
     await client.setSandboxTimeout("sb-1", { timeout: 1200 });
