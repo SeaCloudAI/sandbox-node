@@ -544,6 +544,17 @@ console.log(runtimeMetrics.net_rx_bytes, runtimeMetrics.net_tx_bytes);
 
 Use `control.metrics()` or `build.metrics()` only when you need the Prometheus text output for the gateway services themselves. Those service metrics are not per-sandbox runtime metrics.
 
+### Observability Summary
+
+Use `client.getObservabilitySummary()` to get one user/Project-level view of sandbox usage, template/build usage, and the public diagnostic endpoints:
+
+```ts
+const summary = await client.getObservabilitySummary();
+console.log(summary.status, summary.usage?.sandboxes, summary.usage?.templates);
+```
+
+The summary intentionally returns public product fields only. Use the endpoint hints from `summary.endpoints` for sandbox logs, build logs, and full usage-limit checks.
+
 ### Operator APIs
 
 The low-level control service also includes operator-oriented methods such as `getPoolStatus`, `startRollingUpdate`, `getRollingUpdateStatus`, and `cancelRollingUpdate`.

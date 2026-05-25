@@ -134,6 +134,64 @@ export interface SandboxMetricsResponse {
   sandboxes: Record<string, SandboxMetricSnapshot>;
 }
 
+export interface UsageLimitValue {
+  limit: number;
+  used: number;
+  remaining: number;
+  resetAt?: string;
+  enforced: boolean;
+}
+
+export interface UsageLimitScope {
+  id?: string;
+  usage?: Record<string, number>;
+  limits?: Record<string, UsageLimitValue>;
+}
+
+export interface SandboxUsageLimits {
+  resource: "sandboxes" | string;
+  unlimited?: boolean;
+  user?: UsageLimitScope;
+  project?: UsageLimitScope;
+  runtime?: {
+    maxRuntimeSeconds?: number;
+  };
+}
+
+export interface TemplateUsageLimits {
+  resource: "templates" | string;
+  unlimited?: boolean;
+  user?: UsageLimitScope;
+  project?: UsageLimitScope;
+  resources?: {
+    maxTemplateCPU?: number;
+    maxTemplateMemoryMB?: number;
+    maxTemplateStorageGB?: number;
+  };
+}
+
+export interface ObservabilitySignal {
+  status: "available" | "unavailable" | string;
+  message?: string;
+}
+
+export interface ObservabilitySummary {
+  status: "ok" | "degraded" | string;
+  projectID?: string;
+  userID?: string;
+  usage?: {
+    sandboxes?: SandboxUsageLimits;
+    templates?: TemplateUsageLimits;
+  };
+  availability: Record<string, ObservabilitySignal>;
+  endpoints: {
+    sandboxUsage: string;
+    templateUsage: string;
+    sandboxLogs: string;
+    buildLogs: string;
+  };
+}
+
 export interface SandboxLogsParams {
   cursor?: number;
   limit?: number;

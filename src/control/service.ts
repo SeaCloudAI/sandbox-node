@@ -18,6 +18,7 @@ import type {
   SandboxMetricSnapshot,
   SandboxMetricsParams,
   SandboxMetricsResponse,
+  ObservabilitySummary,
   SandboxLogsParams,
   SandboxLogsResponse,
   TimeoutRequest,
@@ -72,6 +73,12 @@ export class SandboxControlService extends BaseTransport {
   async listSandboxMetrics(params: SandboxMetricsParams = {}, options: ControlRequestOptions = {}): Promise<SandboxMetricsResponse> {
     const path = withQuery("/api/v1/sandboxes/metrics", encodeMetricsParams(params));
     return this.requestJson<SandboxMetricsResponse>(path, {
+      method: "GET",
+    }, [200], options.requestTimeoutMs);
+  }
+
+  async getObservabilitySummary(options: ControlRequestOptions = {}): Promise<ObservabilitySummary> {
+    return this.requestJson<ObservabilitySummary>("/api/v1/observability/summary", {
       method: "GET",
     }, [200], options.requestTimeoutMs);
   }
