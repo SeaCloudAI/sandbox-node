@@ -637,7 +637,7 @@ export class Template {
           break;
         case "RUN":
           if (step.args?.[0]) {
-            lines.push(`RUN ${step.args[0]}`);
+            lines.push(dockerfileRunLine(step.args[0]));
           }
           break;
         case "ENV":
@@ -1144,6 +1144,10 @@ function dockerfileEnvLines(args: string[]): string[] {
     }
   }
   return lines;
+}
+
+function dockerfileRunLine(command: string): string {
+  return `RUN ["sh", "-lc", ${JSON.stringify(command)}]`;
 }
 
 function buildNpmInstallCommand(packages: string | string[] | undefined, options: NpmInstallOptions): string {

@@ -1320,7 +1320,7 @@ test("unit: Template image helpers and serialization align with E2B-style APIs",
   assert.match(request.steps[0].filesHash, /^[a-f0-9]{64}$/);
   assert.equal(request.startCmd, "node server.js");
   assert.match(dockerfile, /^FROM python:3\.12/m);
-  assert.match(dockerfile, /^RUN pip install numpy/m);
+  assert.match(dockerfile, /^RUN \["sh", "-lc", "pip install numpy"\]/m);
   assert.match(dockerfile, /^WORKDIR \/app/m);
   assert.match(dockerfile, /^USER root/m);
 
@@ -1344,6 +1344,17 @@ test("unit: Template image helpers and serialization align with E2B-style APIs",
     })
     .request();
   assert.equal(gcpRequest.fromImageRegistry.type, "gcp");
+});
+
+test("unit: Template.toDockerfile JSON-escapes multiline RUN commands", () => {
+  const dockerfile = Template.toDockerfile(
+    new Template()
+      .fromImage("alpine:3.20")
+      .runCmd('printf "hello\n" > /tmp/hello.txt'),
+  );
+
+  assert.match(dockerfile, /^RUN \["sh", "-lc", "printf \\"hello\\n\\" > \/tmp\/hello\.txt"\]/m);
+  assert.equal(dockerfile.includes('\n" > /tmp/hello.txt'), false);
 });
 
 test("unit: template builder parses Dockerfiles from inline content and file paths", async () => {
