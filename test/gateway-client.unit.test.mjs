@@ -18,7 +18,7 @@ import {
 
 function createGatewayClient(handler) {
   return new GatewayClient({
-    baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+    baseUrl: "https://sandbox-gateway.cloud.seaart.ai/api/v1",
     apiKey: "unit-auth-value",
     fetch: handler,
   });
@@ -26,7 +26,7 @@ function createGatewayClient(handler) {
 
 function createProjectGatewayClient(handler) {
   return new GatewayClient({
-    baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+    baseUrl: "https://sandbox-gateway.cloud.seaart.ai/api/v1",
     apiKey: "unit-auth-value",
     projectId: "project-1",
     fetch: handler,
@@ -160,11 +160,11 @@ test("unit: sandbox request encoding", async (t) => {
   });
 
   await t.test("client options fall back to SEACLOUD_API_KEY", async () => {
-    const previous = process.env.SEACLOUD_API_KEY;
+    const previousApiKey = process.env.SEACLOUD_API_KEY;
     process.env.SEACLOUD_API_KEY = "unit-auth-value";
     try {
       const client = new GatewayClient({
-        baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+        baseUrl: "https://sandbox-gateway.cloud.seaart.ai/api/v1",
         fetch: async (_input, init) => {
           const headers = new Headers(init.headers);
           assert.equal(headers.get("Authorization"), "Bearer unit-auth-value");
@@ -176,10 +176,10 @@ test("unit: sandbox request encoding", async (t) => {
       const response = await client.listSandboxes();
       assert.equal(Array.isArray(response), true);
     } finally {
-      if (previous === undefined) {
+      if (previousApiKey === undefined) {
         delete process.env.SEACLOUD_API_KEY;
       } else {
-        process.env.SEACLOUD_API_KEY = previous;
+        process.env.SEACLOUD_API_KEY = previousApiKey;
       }
     }
   });
@@ -187,7 +187,7 @@ test("unit: sandbox request encoding", async (t) => {
   await t.test("client options fall back to SEACLOUD_BASE_URL", async () => {
     const previousBaseUrl = process.env.SEACLOUD_BASE_URL;
     const previousApiKey = process.env.SEACLOUD_API_KEY;
-    process.env.SEACLOUD_BASE_URL = "seacloud.example.test";
+    process.env.SEACLOUD_BASE_URL = "seacloud.example.test/api/v1";
     process.env.SEACLOUD_API_KEY = "unit-auth-value";
     try {
       const client = new GatewayClient({
@@ -202,7 +202,7 @@ test("unit: sandbox request encoding", async (t) => {
 
       const response = await client.listSandboxes();
       assert.equal(Array.isArray(response), true);
-      assert.equal(client.baseUrl, "https://seacloud.example.test");
+      assert.equal(client.baseUrl, "https://seacloud.example.test/api/v1");
     } finally {
       if (previousBaseUrl === undefined) {
         delete process.env.SEACLOUD_BASE_URL;
@@ -215,6 +215,23 @@ test("unit: sandbox request encoding", async (t) => {
         process.env.SEACLOUD_API_KEY = previousApiKey;
       }
     }
+  });
+
+  await t.test("client baseUrl controls gateway API root path", async () => {
+    const client = new GatewayClient({
+      baseUrl: "https://seacloud-sandbox-service.dev.seaart.dev/api/v1/sandbox",
+      apiKey: "unit-auth-value",
+      fetch: async (input, init) => {
+        assert.equal(String(input), "https://seacloud-sandbox-service.dev.seaart.dev/api/v1/sandbox/sandboxes");
+        const headers = new Headers(init.headers);
+        assert.equal(headers.get("Authorization"), "Bearer unit-auth-value");
+        assert.equal(headers.get("X-API-Key"), "unit-auth-value");
+        return jsonResponse(200, []);
+      },
+    });
+
+    const response = await client.listSandboxes();
+    assert.deepEqual(response, []);
   });
 
   await t.test("list sandboxes encodes all query params", async () => {
@@ -241,7 +258,7 @@ test("unit: sandbox request encoding", async (t) => {
   await t.test("logger receives sanitized request lifecycle events with request ids", async () => {
     const events = [];
     const client = new GatewayClient({
-      baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+      baseUrl: "https://sandbox-gateway.cloud.seaart.ai/api/v1",
       apiKey: "unit-auth-value",
       logger: (event) => events.push(event),
       fetch: async (input, init) => {
@@ -266,7 +283,7 @@ test("unit: sandbox request encoding", async (t) => {
 
   await t.test("diagnostic logger failures do not affect requests", async () => {
     const client = new GatewayClient({
-      baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+      baseUrl: "https://sandbox-gateway.cloud.seaart.ai/api/v1",
       apiKey: "unit-auth-value",
       logger: () => {
         throw new Error("logger failed");
@@ -281,7 +298,7 @@ test("unit: sandbox request encoding", async (t) => {
   await t.test("diagnostic network errors redact embedded urls", async () => {
     const events = [];
     const client = new GatewayClient({
-      baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+      baseUrl: "https://sandbox-gateway.cloud.seaart.ai/api/v1",
       apiKey: "unit-auth-value",
       logger: (event) => events.push(event),
       fetch: async () => {
@@ -440,28 +457,28 @@ test("unit: sandbox request encoding", async (t) => {
     const client = createGatewayClient(async (input, init) => {
       calls.push({ url: String(input), method: init.method, body: init.body ? JSON.parse(init.body) : null });
       const url = new URL(String(input));
-      if (url.pathname === "/admin/pool/status") {
+      if (url.pathname === "/api/v1/admin/pool/status") {
         return jsonResponse(200, {
           code: 0,
           data: { total: 10, warm: 2, active: 3, creating: 1, stopped: 1, deleting: 1, deleted: 2, utilization: 0.5 },
           request_id: "req-pool",
         });
       }
-      if (url.pathname === "/admin/rolling/start") {
+      if (url.pathname === "/api/v1/admin/rolling/start") {
         return jsonResponse(200, {
           code: 0,
           data: { phase: "running", progress: 0.25, warm_total: 4, warm_updated: 1, duration: "10s" },
           request_id: "req-start",
         });
       }
-      if (url.pathname === "/admin/rolling/status") {
+      if (url.pathname === "/api/v1/admin/rolling/status") {
         return jsonResponse(200, {
           code: 0,
           data: { phase: "running", progress: 0.5, warm_total: 4, warm_updated: 2, duration: "20s" },
           request_id: "req-status",
         });
       }
-      if (url.pathname === "/admin/rolling/cancel") {
+      if (url.pathname === "/api/v1/admin/rolling/cancel") {
         return jsonResponse(200, {
           code: 0,
           data: { phase: "cancelled", progress: 0.5, warm_total: 4, warm_updated: 2, duration: "21s" },
@@ -481,10 +498,10 @@ test("unit: sandbox request encoding", async (t) => {
     assert.equal(status.requestId, "req-status");
     assert.equal(cancelled.requestId, "req-cancel");
     assert.deepEqual(calls.map((call) => [new URL(call.url).pathname, call.method]), [
-      ["/admin/pool/status", "GET"],
-      ["/admin/rolling/start", "POST"],
-      ["/admin/rolling/status", "GET"],
-      ["/admin/rolling/cancel", "POST"],
+      ["/api/v1/admin/pool/status", "GET"],
+      ["/api/v1/admin/rolling/start", "POST"],
+      ["/api/v1/admin/rolling/status", "GET"],
+      ["/api/v1/admin/rolling/cancel", "POST"],
     ]);
     assert.deepEqual(calls[1].body, { templateId: "tpl-1" });
     await assert.rejects(client.startRollingUpdate({ templateId: " " }), ValidationError);
@@ -784,7 +801,7 @@ test("unit: validations and errors", async (t) => {
 
   await t.test("request timeout surfaces a typed error", async () => {
     const client = new GatewayClient({
-      baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+      baseUrl: "https://sandbox-gateway.cloud.seaart.ai/api/v1",
       apiKey: "unit-auth-value",
       timeoutMs: 1,
       fetch: async (_input, init) => new Promise((_, reject) => {

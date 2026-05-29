@@ -77,10 +77,13 @@ export class BaseTransport {
   }
 
   protected buildUrl(path: string): string {
-    const normalizedPath = path.trim().startsWith("/")
-      ? path.trim()
-      : `/${path.trim() || ""}`;
-    return new URL(normalizedPath || "/", `${this.baseUrl}/`).toString();
+    const suffix = path.trim().replace(/^\/+/, "");
+    return new URL(suffix, `${this.baseUrl}/`).toString();
+  }
+
+  protected apiPath(path: string): string {
+    const suffix = path.trim();
+    return suffix.startsWith("/") ? suffix : `/${suffix}`;
   }
 
   protected buildHeaders(headers: HeadersInit = {}): Headers {

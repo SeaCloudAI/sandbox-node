@@ -33,7 +33,7 @@ export class SandboxControlService extends BaseTransport {
     rejectUnsupportedCreateFields(body as unknown as Record<string, unknown>);
 
     return this.requestJson<Sandbox>(
-      "/api/v1/sandboxes",
+      this.apiPath("/sandboxes"),
       {
         method: "POST",
         headers: this.buildJSONHeaders(),
@@ -45,7 +45,7 @@ export class SandboxControlService extends BaseTransport {
   }
 
   async listSandboxes(params: ListSandboxesParams = {}, options: ControlRequestOptions = {}): Promise<ListedSandbox[]> {
-    const path = withQuery("/api/v1/sandboxes", encodeListParams(params));
+    const path = withQuery(this.apiPath("/sandboxes"), encodeListParams(params));
     return this.requestJson<ListedSandbox[]>(path, {
       method: "GET",
     }, [200], options.requestTimeoutMs);
@@ -54,7 +54,7 @@ export class SandboxControlService extends BaseTransport {
   async getSandbox(sandboxID: string, options: ControlRequestOptions = {}): Promise<SandboxDetail> {
     this.requireSandboxID(sandboxID);
 
-    return this.requestJson<SandboxDetail>(`/api/v1/sandboxes/${encodeURIComponent(sandboxID)}`, {
+    return this.requestJson<SandboxDetail>(this.apiPath(`/sandboxes/${encodeURIComponent(sandboxID)}`), {
       method: "GET",
     }, [200], options.requestTimeoutMs);
   }
@@ -63,7 +63,7 @@ export class SandboxControlService extends BaseTransport {
     this.requireSandboxID(sandboxID);
 
     return this.requestJson<SandboxMetricSnapshot>(
-      `/api/v1/sandboxes/${encodeURIComponent(sandboxID)}/metrics`,
+      this.apiPath(`/sandboxes/${encodeURIComponent(sandboxID)}/metrics`),
       { method: "GET" },
       [200],
       options.requestTimeoutMs,
@@ -71,14 +71,14 @@ export class SandboxControlService extends BaseTransport {
   }
 
   async listSandboxMetrics(params: SandboxMetricsParams = {}, options: ControlRequestOptions = {}): Promise<SandboxMetricsResponse> {
-    const path = withQuery("/api/v1/sandboxes/metrics", encodeMetricsParams(params));
+    const path = withQuery(this.apiPath("/sandboxes/metrics"), encodeMetricsParams(params));
     return this.requestJson<SandboxMetricsResponse>(path, {
       method: "GET",
     }, [200], options.requestTimeoutMs);
   }
 
   async getObservabilitySummary(options: ControlRequestOptions = {}): Promise<ObservabilitySummary> {
-    return this.requestJson<ObservabilitySummary>("/api/v1/observability/summary", {
+    return this.requestJson<ObservabilitySummary>(this.apiPath("/observability/summary"), {
       method: "GET",
     }, [200], options.requestTimeoutMs);
   }
@@ -87,7 +87,7 @@ export class SandboxControlService extends BaseTransport {
     this.requireSandboxID(sandboxID);
 
     await this.requestEmpty(
-      `/api/v1/sandboxes/${encodeURIComponent(sandboxID)}`,
+      this.apiPath(`/sandboxes/${encodeURIComponent(sandboxID)}`),
       { method: "DELETE" },
       [204],
       options.requestTimeoutMs,
@@ -103,7 +103,7 @@ export class SandboxControlService extends BaseTransport {
     this.validateLogsParams(params);
 
     const path = withQuery(
-      `/api/v1/sandboxes/${encodeURIComponent(sandboxID)}/logs`,
+      this.apiPath(`/sandboxes/${encodeURIComponent(sandboxID)}/logs`),
       encodeLogsParams(params),
     );
     return this.requestJson<SandboxLogsResponse>(path, {
@@ -115,7 +115,7 @@ export class SandboxControlService extends BaseTransport {
     this.requireSandboxID(sandboxID);
 
     await this.requestEmpty(
-      `/api/v1/sandboxes/${encodeURIComponent(sandboxID)}/pause`,
+      this.apiPath(`/sandboxes/${encodeURIComponent(sandboxID)}/pause`),
       { method: "POST" },
       [204],
       options.requestTimeoutMs,
@@ -130,7 +130,7 @@ export class SandboxControlService extends BaseTransport {
     this.requireSandboxID(sandboxID);
     this.validateTimeoutSeconds(body.timeout, "connect timeout");
 
-    const response = await this.request(`/api/v1/sandboxes/${encodeURIComponent(sandboxID)}/connect`, {
+    const response = await this.request(this.apiPath(`/sandboxes/${encodeURIComponent(sandboxID)}/connect`), {
       method: "POST",
       headers: this.buildJSONHeaders(),
       body: JSON.stringify(body),
@@ -148,7 +148,7 @@ export class SandboxControlService extends BaseTransport {
     this.validateTimeoutSeconds(body.timeout, "timeout");
 
     await this.requestEmpty(
-      `/api/v1/sandboxes/${encodeURIComponent(sandboxID)}/timeout`,
+      this.apiPath(`/sandboxes/${encodeURIComponent(sandboxID)}/timeout`),
       {
         method: "POST",
         headers: this.buildJSONHeaders(),
@@ -168,7 +168,7 @@ export class SandboxControlService extends BaseTransport {
     this.validateRefreshDuration(body?.duration);
 
     await this.requestEmpty(
-      `/api/v1/sandboxes/${encodeURIComponent(sandboxID)}/refreshes`,
+      this.apiPath(`/sandboxes/${encodeURIComponent(sandboxID)}/refreshes`),
       {
         method: "POST",
         headers: body === undefined ? undefined : this.buildJSONHeaders(),
@@ -187,7 +187,7 @@ export class SandboxControlService extends BaseTransport {
     this.validateHeartbeatStatus(body.status);
 
     const wrapped = await this.requestJson<WrappedResponse<Omit<HeartbeatResponse, "requestId">>>(
-      `/api/v1/sandboxes/${encodeURIComponent(sandboxID)}/heartbeat`,
+      this.apiPath(`/sandboxes/${encodeURIComponent(sandboxID)}/heartbeat`),
       {
         method: "POST",
         headers: this.buildJSONHeaders(),

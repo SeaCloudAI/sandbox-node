@@ -24,7 +24,7 @@ function jsonResponse(status, body) {
 
 function createGatewayClient(fetch) {
   return new GatewayClient({
-    baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+    baseUrl: "https://sandbox-gateway.cloud.seaart.ai/api/v1",
     apiKey: "unit-auth-value",
     fetch,
   });
@@ -818,7 +818,7 @@ test("unit: Template static helpers use env-first gateway flow", async () => {
   const template = new Template().fromImage("docker.io/library/node:20");
   const previousDomain = process.env.SEACLOUD_BASE_URL;
   const previousAPIKey = process.env.SEACLOUD_API_KEY;
-  process.env.SEACLOUD_BASE_URL = "https://sandbox-gateway.cloud.seaart.ai";
+  process.env.SEACLOUD_BASE_URL = "https://sandbox-gateway.cloud.seaart.ai/api/v1";
   process.env.SEACLOUD_API_KEY = "unit-auth-value";
 
   try {
@@ -986,7 +986,7 @@ test("unit: Template static helpers use env-first gateway flow", async () => {
 test("unit: Template tag helpers use build tag endpoints", async () => {
   const previousDomain = process.env.SEACLOUD_BASE_URL;
   const previousAPIKey = process.env.SEACLOUD_API_KEY;
-  process.env.SEACLOUD_BASE_URL = "https://sandbox-gateway.cloud.seaart.ai";
+  process.env.SEACLOUD_BASE_URL = "https://sandbox-gateway.cloud.seaart.ai/api/v1";
   process.env.SEACLOUD_API_KEY = "unit-auth-value";
   const calls = [];
   const fetch = async (input, init) => {
@@ -1690,7 +1690,7 @@ test("unit: pause returns boolean and sandbox timeout uses seconds", async () =>
   const client = createGatewayClient(fetchImpl);
   const previousDomain = process.env.SEACLOUD_BASE_URL;
   const previousAPIKey = process.env.SEACLOUD_API_KEY;
-  process.env.SEACLOUD_BASE_URL = "https://sandbox-gateway.cloud.seaart.ai";
+  process.env.SEACLOUD_BASE_URL = "https://sandbox-gateway.cloud.seaart.ai/api/v1";
   process.env.SEACLOUD_API_KEY = "unit-auth-value";
 
   try {

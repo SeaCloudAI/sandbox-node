@@ -61,7 +61,7 @@ export class SandboxBuildService extends BaseTransport {
   async createTemplate(body: TemplateCreateRequest = {}): Promise<TemplateCreateResponse> {
     this.validateTemplateCreateBody(body);
     return this.requestJson<TemplateCreateResponse>(
-      "/api/v1/templates",
+      this.apiPath("/templates"),
       {
         method: "POST",
         headers: this.buildJSONHeaders(),
@@ -73,7 +73,7 @@ export class SandboxBuildService extends BaseTransport {
 
   async listTemplates(params: ListTemplatesParams = {}): Promise<ListedTemplate[]> {
     this.validateListTemplatesParams(params);
-    const path = withQuery("/api/v1/templates", encodeListTemplatesParams(params));
+    const path = withQuery(this.apiPath("/templates"), encodeListTemplatesParams(params));
     return this.requestJson<ListedTemplate[]>(path, {
       method: "GET",
     });
@@ -84,7 +84,7 @@ export class SandboxBuildService extends BaseTransport {
       throw new ValidationError("alias is required");
     }
     return this.requestJson<TemplateAliasResponse>(
-      `/api/v1/templates/aliases/${encodeURIComponent(alias)}`,
+      this.apiPath(`/templates/aliases/${encodeURIComponent(alias)}`),
       { method: "GET" },
     );
   }
@@ -94,7 +94,7 @@ export class SandboxBuildService extends BaseTransport {
       throw new ValidationError("ref is required");
     }
     return this.requestJson<TemplateAliasResponse>(
-      `/api/v1/templates/resolve/${encodeURIComponent(ref)}`,
+      this.apiPath(`/templates/resolve/${encodeURIComponent(ref)}`),
       { method: "GET" },
     );
   }
@@ -105,7 +105,7 @@ export class SandboxBuildService extends BaseTransport {
   ): Promise<TemplateResponse> {
     this.requireTemplateID(templateID);
     this.validateGetTemplateParams(params);
-    const path = withQuery(`/api/v1/templates/${encodeURIComponent(templateID)}`, encodeGetTemplateParams(params));
+    const path = withQuery(this.apiPath(`/templates/${encodeURIComponent(templateID)}`), encodeGetTemplateParams(params));
     return this.requestJson<TemplateResponse>(path, { method: "GET" });
   }
 
@@ -116,7 +116,7 @@ export class SandboxBuildService extends BaseTransport {
     this.requireTemplateID(templateID);
     this.validateTemplateUpdateBody(body);
     return this.requestJson<TemplateUpdateResponse>(
-      `/api/v1/templates/${encodeURIComponent(templateID)}`,
+      this.apiPath(`/templates/${encodeURIComponent(templateID)}`),
       {
         method: "PATCH",
         headers: this.buildJSONHeaders(),
@@ -128,7 +128,7 @@ export class SandboxBuildService extends BaseTransport {
   async deleteTemplate(templateID: string): Promise<void> {
     this.requireTemplateID(templateID);
     await this.requestEmpty(
-      `/api/v1/templates/${encodeURIComponent(templateID)}`,
+      this.apiPath(`/templates/${encodeURIComponent(templateID)}`),
       { method: "DELETE" },
       [204],
     );
@@ -145,7 +145,7 @@ export class SandboxBuildService extends BaseTransport {
     this.validateBuildRequest(body);
     const payload = body && !isEmptyBuildRequest(body) ? JSON.stringify(body) : undefined;
     return this.requestJson<BuildTriggerResponse>(
-      `/api/v1/templates/${encodeURIComponent(templateID)}/builds/${encodeURIComponent(buildID)}`,
+      this.apiPath(`/templates/${encodeURIComponent(templateID)}/builds/${encodeURIComponent(buildID)}`),
       {
         method: "POST",
         headers: payload === undefined ? undefined : this.buildJSONHeaders(),
@@ -162,7 +162,7 @@ export class SandboxBuildService extends BaseTransport {
     this.requireTemplateID(templateID);
     this.requireHash(hash);
     return this.requestJson<FilePresenceResponse>(
-      `/api/v1/templates/${encodeURIComponent(templateID)}/files/${encodeURIComponent(hash)}`,
+      this.apiPath(`/templates/${encodeURIComponent(templateID)}/files/${encodeURIComponent(hash)}`),
       { method: "GET" },
     );
   }
@@ -176,7 +176,7 @@ export class SandboxBuildService extends BaseTransport {
       throw new ValidationError("buildID is required");
     }
     return this.requestJson<TemplateResponse>(
-      `/api/v1/templates/${encodeURIComponent(templateID)}/rollback`,
+      this.apiPath(`/templates/${encodeURIComponent(templateID)}/rollback`),
       {
         method: "POST",
         headers: this.buildJSONHeaders(),
@@ -188,7 +188,7 @@ export class SandboxBuildService extends BaseTransport {
   async listBuilds(templateID: string): Promise<BuildHistoryResponse> {
     this.requireTemplateID(templateID);
     return this.requestJson<BuildHistoryResponse>(
-      `/api/v1/templates/${encodeURIComponent(templateID)}/builds`,
+      this.apiPath(`/templates/${encodeURIComponent(templateID)}/builds`),
       { method: "GET" },
     );
   }
@@ -197,7 +197,7 @@ export class SandboxBuildService extends BaseTransport {
     this.requireTemplateID(templateID);
     this.requireBuildID(buildID);
     return this.requestJson<BuildResponse>(
-      `/api/v1/templates/${encodeURIComponent(templateID)}/builds/${encodeURIComponent(buildID)}`,
+      this.apiPath(`/templates/${encodeURIComponent(templateID)}/builds/${encodeURIComponent(buildID)}`),
       { method: "GET" },
     );
   }
@@ -211,7 +211,7 @@ export class SandboxBuildService extends BaseTransport {
     this.requireBuildID(buildID);
     this.validateBuildStatusParams(params);
     const path = withQuery(
-      `/api/v1/templates/${encodeURIComponent(templateID)}/builds/${encodeURIComponent(buildID)}/status`,
+      this.apiPath(`/templates/${encodeURIComponent(templateID)}/builds/${encodeURIComponent(buildID)}/status`),
       encodeBuildStatusParams(params),
     );
     return this.requestJson<BuildStatusResponse>(path, { method: "GET" });
@@ -226,7 +226,7 @@ export class SandboxBuildService extends BaseTransport {
     this.requireBuildID(buildID);
     this.validateBuildLogsParams(params);
     const path = withQuery(
-      `/api/v1/templates/${encodeURIComponent(templateID)}/builds/${encodeURIComponent(buildID)}/logs`,
+      this.apiPath(`/templates/${encodeURIComponent(templateID)}/builds/${encodeURIComponent(buildID)}/logs`),
       encodeBuildLogsParams(params),
     );
     return this.requestJson<BuildLogsResponse>(path, { method: "GET" });
@@ -235,7 +235,7 @@ export class SandboxBuildService extends BaseTransport {
   async assignTemplateTags(body: AssignTemplateTagsRequest): Promise<AssignedTemplateTags> {
     this.validateAssignTemplateTagsBody(body);
     return this.requestJson<AssignedTemplateTags>(
-      "/api/v1/templates/tags",
+      this.apiPath("/templates/tags"),
       {
         method: "POST",
         headers: this.buildJSONHeaders(),
@@ -248,7 +248,7 @@ export class SandboxBuildService extends BaseTransport {
   async deleteTemplateTags(body: DeleteTemplateTagsRequest): Promise<void> {
     this.validateDeleteTemplateTagsBody(body);
     await this.requestEmpty(
-      "/api/v1/templates/tags",
+      this.apiPath("/templates/tags"),
       {
         method: "DELETE",
         headers: this.buildJSONHeaders(),
@@ -261,7 +261,7 @@ export class SandboxBuildService extends BaseTransport {
   async listTemplateTags(templateID: string): Promise<TemplateTag[]> {
     this.requireTemplateID(templateID);
     return this.requestJson<TemplateTag[]>(
-      `/api/v1/templates/${encodeURIComponent(templateID)}/tags`,
+      this.apiPath(`/templates/${encodeURIComponent(templateID)}/tags`),
       { method: "GET" },
     );
   }

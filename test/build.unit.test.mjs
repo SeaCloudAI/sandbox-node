@@ -7,7 +7,7 @@ import { APIError, ValidationError } from "../dist/core/index.js";
 
 function createService(handler) {
   return new GatewayClient({
-    baseUrl: "https://sandbox-gateway.cloud.seaart.ai",
+    baseUrl: "https://sandbox-gateway.cloud.seaart.ai/api/v1",
     apiKey: "unit-auth-value",
     projectId: "project-1",
     fetch: handler,
