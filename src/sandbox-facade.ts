@@ -19,6 +19,7 @@ import type {
   SandboxDetail,
   SandboxLogsParams,
   SandboxLogsResponse,
+  SandboxNetworkPolicy,
   TimeoutRequest,
 } from "./control/index.js";
 import type { ClientOptions } from "./core/transport.js";
@@ -44,6 +45,7 @@ export interface SandboxCreateOptions {
   metadata?: Record<string, string>;
   envs?: Record<string, string>;
   waitReady?: boolean;
+  network?: SandboxNetworkPolicy;
 }
 
 type SandboxCreateOverrides = Omit<SandboxCreateOptions, "template">;
@@ -1130,6 +1132,7 @@ function normalizeSandboxCreateArgs(
     metadata?: Record<string, string>;
     envVars?: Record<string, string>;
     waitReady?: boolean;
+    network?: SandboxNetworkPolicy;
   };
 } {
   if (typeof templateOrOptions === "string") {
@@ -1167,6 +1170,7 @@ function normalizeSandboxCreateBody(
   metadata?: Record<string, string>;
   envVars?: Record<string, string>;
   waitReady?: boolean;
+  network?: SandboxNetworkPolicy;
 } {
   rejectUnsupportedSandboxCreateFields(source as unknown as Record<string, unknown>);
   const templateID = typeof source.template === "string" && source.template.trim() ? source.template.trim() : undefined;
@@ -1183,11 +1187,12 @@ function normalizeSandboxCreateBody(
     metadata: source.metadata,
     envVars: source.envs,
     waitReady: source.waitReady,
+    network: source.network,
   };
 }
 
 function rejectUnsupportedSandboxCreateFields(source: Record<string, unknown>): void {
-  for (const key of ["autoResume", "secure", "allow_internet_access", "network", "mcp", "volumeMounts"]) {
+  for (const key of ["autoResume", "secure", "allow_internet_access", "mcp", "volumeMounts"]) {
     if (Object.prototype.hasOwnProperty.call(source, key)) {
       throw new ConfigurationError(`${key} is not supported`);
     }

@@ -12,6 +12,14 @@ export interface NewSandboxRequest {
   metadata?: Record<string, string>;
   envVars?: Record<string, string>;
   waitReady?: boolean;
+  network?: SandboxNetworkPolicy;
+}
+
+export interface SandboxNetworkPolicy {
+  allowPublicTraffic?: boolean;
+  allowInternetAccess?: boolean;
+  allowOut?: string[];
+  denyOut?: string[];
 }
 
 export interface ControlRequestOptions {
@@ -49,6 +57,7 @@ export interface Sandbox {
   endAt: string;
   timeline?: SandboxTimelineEvent[];
   diagnostic?: SandboxDiagnostic;
+  network?: SandboxNetworkPolicy;
 }
 
 export interface SandboxDetail {
@@ -71,6 +80,7 @@ export interface SandboxDetail {
   activatedAt?: string | null;
   timeline?: SandboxTimelineEvent[];
   diagnostic?: SandboxDiagnostic;
+  network?: SandboxNetworkPolicy;
 }
 
 export interface ListedSandbox {
@@ -90,6 +100,7 @@ export interface ListedSandbox {
   activatedAt?: string | null;
   timeline?: SandboxTimelineEvent[];
   diagnostic?: SandboxDiagnostic;
+  network?: SandboxNetworkPolicy;
 }
 
 export interface ListSandboxesParams {

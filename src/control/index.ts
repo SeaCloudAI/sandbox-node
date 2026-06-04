@@ -18,6 +18,7 @@ export type {
   SandboxMetricSnapshot,
   SandboxMetricsParams,
   SandboxMetricsResponse,
+  SandboxNetworkPolicy,
   SandboxTimelineEvent,
   SandboxLogEntry,
   SandboxLogsParams,

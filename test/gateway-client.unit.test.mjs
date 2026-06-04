@@ -125,18 +125,37 @@ test("unit: sandbox request encoding", async (t) => {
       const headers = new Headers(init.headers);
       assert.equal(headers.get("Content-Type"), "application/json");
       assert.equal(headers.get("X-Project-ID"), "project-1");
-      assert.deepEqual(JSON.parse(init.body), { templateID: "tpl", waitReady: true });
+      assert.deepEqual(JSON.parse(init.body), {
+        templateID: "tpl",
+        waitReady: true,
+        network: {
+          allowInternetAccess: false,
+          allowOut: ["1.1.1.1"],
+        },
+      });
       return jsonResponse(201, {
         sandboxID: "sb-1",
         envdUrl: "https://sandbox-gateway.cloud.seaart.ai",
         envdAccessToken: "unit-runtime-auth",
+        network: {
+          allowInternetAccess: false,
+          allowOut: ["1.1.1.1/32"],
+        },
         activatedAt: "2026-01-01T00:00:05Z",
       });
     });
 
-    const response = await client.createSandbox({ templateID: "tpl", waitReady: true });
+    const response = await client.createSandbox({
+      templateID: "tpl",
+      waitReady: true,
+      network: {
+        allowInternetAccess: false,
+        allowOut: ["1.1.1.1"],
+      },
+    });
     assert.equal(response.sandboxID, "sb-1");
     assert.equal(response.activatedAt, "2026-01-01T00:00:05Z");
+    assert.deepEqual(response.network?.allowOut, ["1.1.1.1/32"]);
     assert.equal(response.runtime.baseUrl, "https://sandbox-gateway.cloud.seaart.ai");
   });
 
@@ -619,13 +638,26 @@ test("unit: sandbox request encoding", async (t) => {
       });
     });
 
-    const sandbox = await client.create("tpl", { waitReady: true });
+    const sandbox = await client.create("tpl", {
+      waitReady: true,
+      network: {
+        allowInternetAccess: false,
+        allowOut: ["1.1.1.1"],
+      },
+    });
     const info = await sandbox.getInfo();
 
     assert.equal(sandbox.sandboxId, "sb-high");
     assert.equal(typeof sandbox.getHost(3000), "string");
     assert.equal(info.sandboxId, "sb-high");
-    assert.deepEqual(calls[0].body, { templateID: "tpl", waitReady: true });
+    assert.deepEqual(calls[0].body, {
+      templateID: "tpl",
+      waitReady: true,
+      network: {
+        allowInternetAccess: false,
+        allowOut: ["1.1.1.1"],
+      },
+    });
     assert.equal(calls[1].url, "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes/sb-high");
   });
 

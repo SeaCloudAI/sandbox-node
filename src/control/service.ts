@@ -288,7 +288,7 @@ export class SandboxControlService extends BaseTransport {
 }
 
 function rejectUnsupportedCreateFields(source: Record<string, unknown>): void {
-  for (const key of ["autoResume", "secure", "allow_internet_access", "network", "mcp", "volumeMounts"]) {
+  for (const key of ["autoResume", "secure", "allow_internet_access", "mcp", "volumeMounts"]) {
     if (Object.prototype.hasOwnProperty.call(source, key)) {
       throw new ValidationError(`${key} is not supported`);
     }

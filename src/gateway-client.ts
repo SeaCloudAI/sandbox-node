@@ -239,6 +239,7 @@ function normalizeCreateBody(
   metadata?: Record<string, string>;
   envVars?: Record<string, string>;
   waitReady?: boolean;
+  network?: NewSandboxRequest["network"];
 } {
   if (typeof templateOrOptions === "string") {
     return filterCreateBody({ ...maybeOptions, template: templateOrOptions });
@@ -256,6 +257,7 @@ function filterCreateBody(
   metadata?: Record<string, string>;
   envVars?: Record<string, string>;
   waitReady?: boolean;
+  network?: NewSandboxRequest["network"];
 } {
   rejectUnsupportedCreateFields(source as unknown as Record<string, unknown>);
   const templateID = typeof source.template === "string" && source.template.trim() ? source.template.trim() : undefined;
@@ -270,11 +272,12 @@ function filterCreateBody(
     metadata: source.metadata,
     envVars: source.envs,
     waitReady: source.waitReady,
+    network: source.network,
   };
 }
 
 function rejectUnsupportedCreateFields(source: Record<string, unknown>): void {
-  for (const key of ["autoResume", "secure", "allow_internet_access", "network", "mcp", "volumeMounts"]) {
+  for (const key of ["autoResume", "secure", "allow_internet_access", "mcp", "volumeMounts"]) {
     if (Object.prototype.hasOwnProperty.call(source, key)) {
       throw new ConfigurationError(`${key} is not supported`);
     }
