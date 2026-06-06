@@ -94,7 +94,7 @@ test("unit: bound sandbox creates a sandbox and exposes runtime modules", async 
   assert.equal(calls.length, 5);
 });
 
-test("unit: high-level create requires templateID", async () => {
+test("unit: high-level create sends template when provided", async () => {
   const client = createGatewayClient(async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname === "/api/v1/sandboxes") {

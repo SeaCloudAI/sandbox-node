@@ -4,10 +4,19 @@ import type {
   ConnectSandboxRequest,
   ConnectSandboxResponse,
   ControlRequestOptions,
+  DeleteWebhookResponse,
   HeartbeatRequest,
   HeartbeatResponse,
+  LifecycleWebhook,
+  LifecycleWebhookCreateRequest,
+  LifecycleWebhookDelivery,
+  LifecycleWebhookUpdateRequest,
+  ListSandboxEventsParams,
   ListSandboxesParams,
+  ListWebhookDeliveriesParams,
   ListedSandbox,
+  MaxTeamMetric,
+  NewVolumeRequest,
   NewSandboxRequest,
   PoolStatus,
   RefreshSandboxRequest,
@@ -15,21 +24,26 @@ import type {
   RollingUpdateStatus,
   Sandbox,
   SandboxDetail,
+  SandboxesPage,
+  SandboxLifecycleEvent,
   SandboxMetricSnapshot,
   SandboxMetricsParams,
   SandboxMetricsResponse,
   ObservabilitySummary,
   SandboxLogsParams,
   SandboxLogsResponse,
+  Team,
+  TeamMetric,
+  TeamMetricsMaxParams,
+  TeamMetricsParams,
   TimeoutRequest,
+  Volume,
+  VolumeAndToken,
   WrappedResponse,
 } from "./types.js";
 
 export class SandboxControlService extends BaseTransport {
   async createSandbox(body: NewSandboxRequest, options: ControlRequestOptions = {}): Promise<Sandbox> {
-    if (typeof body.templateID !== "string" || !body.templateID.trim()) {
-      throw new ValidationError("templateID is required");
-    }
     rejectUnsupportedCreateFields(body as unknown as Record<string, unknown>);
 
     return this.requestJson<Sandbox>(
@@ -44,11 +58,181 @@ export class SandboxControlService extends BaseTransport {
     );
   }
 
+  async listSandboxEvents(params: ListSandboxEventsParams = {}, options: ControlRequestOptions = {}): Promise<SandboxLifecycleEvent[]> {
+    const path = withQuery(this.apiPath("/events/sandboxes"), encodeEventsParams(params));
+    return this.requestJson<SandboxLifecycleEvent[]>(path, { method: "GET" }, [200], options.requestTimeoutMs);
+  }
+
+  async listSandboxEventsBySandbox(
+    sandboxID: string,
+    params: ListSandboxEventsParams = {},
+    options: ControlRequestOptions = {},
+  ): Promise<SandboxLifecycleEvent[]> {
+    this.requireSandboxID(sandboxID);
+    const path = withQuery(this.apiPath(`/events/sandboxes/${encodeURIComponent(sandboxID)}`), encodeEventsParams(params));
+    return this.requestJson<SandboxLifecycleEvent[]>(path, { method: "GET" }, [200], options.requestTimeoutMs);
+  }
+
+  async createWebhook(body: LifecycleWebhookCreateRequest, options: ControlRequestOptions = {}): Promise<LifecycleWebhook> {
+    return this.requestJson<LifecycleWebhook>(
+      this.apiPath("/events/webhooks"),
+      {
+        method: "POST",
+        headers: this.buildJSONHeaders(),
+        body: JSON.stringify(body),
+      },
+      [201],
+      options.requestTimeoutMs,
+    );
+  }
+
+  async listWebhooks(options: ControlRequestOptions = {}): Promise<LifecycleWebhook[]> {
+    return this.requestJson<LifecycleWebhook[]>(this.apiPath("/events/webhooks"), { method: "GET" }, [200], options.requestTimeoutMs);
+  }
+
+  async getWebhook(webhookID: string, options: ControlRequestOptions = {}): Promise<LifecycleWebhook> {
+    requireNonEmpty(webhookID, "webhookID");
+    return this.requestJson<LifecycleWebhook>(
+      this.apiPath(`/events/webhooks/${encodeURIComponent(webhookID)}`),
+      { method: "GET" },
+      [200],
+      options.requestTimeoutMs,
+    );
+  }
+
+  async updateWebhook(
+    webhookID: string,
+    body: LifecycleWebhookUpdateRequest,
+    options: ControlRequestOptions = {},
+  ): Promise<LifecycleWebhook> {
+    requireNonEmpty(webhookID, "webhookID");
+    return this.requestJson<LifecycleWebhook>(
+      this.apiPath(`/events/webhooks/${encodeURIComponent(webhookID)}`),
+      {
+        method: "PATCH",
+        headers: this.buildJSONHeaders(),
+        body: JSON.stringify(body),
+      },
+      [200],
+      options.requestTimeoutMs,
+    );
+  }
+
+  async deleteWebhook(webhookID: string, options: ControlRequestOptions = {}): Promise<DeleteWebhookResponse> {
+    requireNonEmpty(webhookID, "webhookID");
+    return this.requestJson<DeleteWebhookResponse>(
+      this.apiPath(`/events/webhooks/${encodeURIComponent(webhookID)}`),
+      { method: "DELETE" },
+      [200],
+      options.requestTimeoutMs,
+    );
+  }
+
+  async listWebhookDeliveries(
+    params: ListWebhookDeliveriesParams = {},
+    options: ControlRequestOptions = {},
+  ): Promise<LifecycleWebhookDelivery[]> {
+    const path = withQuery(this.apiPath("/events/webhook-deliveries"), encodeDeliveryParams(params));
+    return this.requestJson<LifecycleWebhookDelivery[]>(path, { method: "GET" }, [200], options.requestTimeoutMs);
+  }
+
+  async listWebhookDeliveriesByWebhook(
+    webhookID: string,
+    params: ListWebhookDeliveriesParams = {},
+    options: ControlRequestOptions = {},
+  ): Promise<LifecycleWebhookDelivery[]> {
+    requireNonEmpty(webhookID, "webhookID");
+    const path = withQuery(
+      this.apiPath(`/events/webhooks/${encodeURIComponent(webhookID)}/deliveries`),
+      encodeDeliveryParams(params),
+    );
+    return this.requestJson<LifecycleWebhookDelivery[]>(path, { method: "GET" }, [200], options.requestTimeoutMs);
+  }
+
+  async replayWebhookDelivery(deliveryID: string, options: ControlRequestOptions = {}): Promise<LifecycleWebhookDelivery> {
+    requireNonEmpty(deliveryID, "deliveryID");
+    return this.requestJson<LifecycleWebhookDelivery>(
+      this.apiPath(`/events/webhook-deliveries/${encodeURIComponent(deliveryID)}/replay`),
+      { method: "POST" },
+      [202],
+      options.requestTimeoutMs,
+    );
+  }
+
+  async listVolumes(options: ControlRequestOptions = {}): Promise<Volume[]> {
+    return this.requestJson<Volume[]>(this.apiPath("/volumes"), { method: "GET" }, [200], options.requestTimeoutMs);
+  }
+
+  async createVolume(body: NewVolumeRequest, options: ControlRequestOptions = {}): Promise<VolumeAndToken> {
+    return this.requestJson<VolumeAndToken>(
+      this.apiPath("/volumes"),
+      {
+        method: "POST",
+        headers: this.buildJSONHeaders(),
+        body: JSON.stringify(body),
+      },
+      [201],
+      options.requestTimeoutMs,
+    );
+  }
+
+  async getVolume(volumeID: string, options: ControlRequestOptions = {}): Promise<VolumeAndToken> {
+    requireNonEmpty(volumeID, "volumeID");
+    return this.requestJson<VolumeAndToken>(
+      this.apiPath(`/volumes/${encodeURIComponent(volumeID)}`),
+      { method: "GET" },
+      [200],
+      options.requestTimeoutMs,
+    );
+  }
+
+  async deleteVolume(volumeID: string, options: ControlRequestOptions = {}): Promise<void> {
+    requireNonEmpty(volumeID, "volumeID");
+    await this.requestEmpty(
+      this.apiPath(`/volumes/${encodeURIComponent(volumeID)}`),
+      { method: "DELETE" },
+      [204],
+      options.requestTimeoutMs,
+    );
+  }
+
+  async listTeams(options: ControlRequestOptions = {}): Promise<Team[]> {
+    return this.requestJson<Team[]>(this.apiPath("/teams"), { method: "GET" }, [200], options.requestTimeoutMs);
+  }
+
+  async getTeamMetrics(teamID: string, params: TeamMetricsParams = {}, options: ControlRequestOptions = {}): Promise<TeamMetric[]> {
+    requireNonEmpty(teamID, "teamID");
+    const path = withQuery(this.apiPath(`/teams/${encodeURIComponent(teamID)}/metrics`), encodeTeamMetricsParams(params));
+    return this.requestJson<TeamMetric[]>(path, { method: "GET" }, [200], options.requestTimeoutMs);
+  }
+
+  async getTeamMetricsMax(
+    teamID: string,
+    params: TeamMetricsMaxParams,
+    options: ControlRequestOptions = {},
+  ): Promise<MaxTeamMetric> {
+    requireNonEmpty(teamID, "teamID");
+    const path = withQuery(this.apiPath(`/teams/${encodeURIComponent(teamID)}/metrics/max`), encodeTeamMetricsMaxParams(params));
+    return this.requestJson<MaxTeamMetric>(path, { method: "GET" }, [200], options.requestTimeoutMs);
+  }
+
   async listSandboxes(params: ListSandboxesParams = {}, options: ControlRequestOptions = {}): Promise<ListedSandbox[]> {
+    return (await this.listSandboxesPage(params, options)).items;
+  }
+
+  async listSandboxesPage(params: ListSandboxesParams = {}, options: ControlRequestOptions = {}): Promise<SandboxesPage> {
     const path = withQuery(this.apiPath("/sandboxes"), encodeListParams(params));
-    return this.requestJson<ListedSandbox[]>(path, {
+    const response = await this.request(path, {
       method: "GET",
-    }, [200], options.requestTimeoutMs);
+    }, options.requestTimeoutMs);
+    if (response.status !== 200) {
+      throw await APIError.fromResponse(response);
+    }
+    return {
+      items: (await response.json()) as ListedSandbox[],
+      nextToken: response.headers.get("X-Next-Token") ?? "",
+      hasNext: response.headers.get("X-Has-Next")?.toLowerCase() === "true",
+    };
   }
 
   async getSandbox(sandboxID: string, options: ControlRequestOptions = {}): Promise<SandboxDetail> {
@@ -288,10 +472,16 @@ export class SandboxControlService extends BaseTransport {
 }
 
 function rejectUnsupportedCreateFields(source: Record<string, unknown>): void {
-  for (const key of ["autoResume", "secure", "allow_internet_access", "mcp", "volumeMounts"]) {
+  for (const key of ["secure", "mcp", "volume_mounts"]) {
     if (Object.prototype.hasOwnProperty.call(source, key)) {
       throw new ValidationError(`${key} is not supported`);
     }
+  }
+}
+
+function requireNonEmpty(value: string, field: string): void {
+  if (!value.trim()) {
+    throw new ValidationError(`${field} is required`);
   }
 }
 
@@ -324,6 +514,49 @@ function encodeListParams(params: ListSandboxesParams): URLSearchParams {
   return query;
 }
 
+function encodeEventsParams(params: ListSandboxEventsParams): URLSearchParams {
+  const query = new URLSearchParams();
+  if (params.offset !== undefined) {
+    query.set("offset", String(params.offset));
+  }
+  if (params.limit !== undefined) {
+    query.set("limit", String(params.limit));
+  }
+  if (params.orderAsc !== undefined) {
+    query.set("orderAsc", String(params.orderAsc));
+  }
+  for (const type of params.types ?? []) {
+    const value = type.trim();
+    if (value) {
+      query.append("types", value);
+    }
+  }
+  return query;
+}
+
+function encodeDeliveryParams(params: ListWebhookDeliveriesParams): URLSearchParams {
+  const query = new URLSearchParams();
+  if (params.offset !== undefined) {
+    query.set("offset", String(params.offset));
+  }
+  if (params.limit !== undefined) {
+    query.set("limit", String(params.limit));
+  }
+  if (params.orderAsc !== undefined) {
+    query.set("orderAsc", String(params.orderAsc));
+  }
+  if (params.webhookID?.trim()) {
+    query.set("webhookID", params.webhookID.trim());
+  }
+  if (params.eventID?.trim()) {
+    query.set("eventID", params.eventID.trim());
+  }
+  if (params.status?.trim()) {
+    query.set("status", params.status.trim());
+  }
+  return query;
+}
+
 function encodeMetricsParams(params: SandboxMetricsParams): URLSearchParams {
   const query = new URLSearchParams();
   const ids = (params.sandboxIDs ?? [])
@@ -334,6 +567,25 @@ function encodeMetricsParams(params: SandboxMetricsParams): URLSearchParams {
   }
   if (params.limit !== undefined) {
     query.set("limit", String(params.limit));
+  }
+  return query;
+}
+
+function encodeTeamMetricsParams(params: TeamMetricsParams): URLSearchParams {
+  const query = new URLSearchParams();
+  if (params.start !== undefined) {
+    query.set("start", String(params.start));
+  }
+  if (params.end !== undefined) {
+    query.set("end", String(params.end));
+  }
+  return query;
+}
+
+function encodeTeamMetricsMaxParams(params: TeamMetricsMaxParams): URLSearchParams {
+  const query = encodeTeamMetricsParams(params);
+  if (params.metric.trim()) {
+    query.set("metric", params.metric.trim());
   }
   return query;
 }

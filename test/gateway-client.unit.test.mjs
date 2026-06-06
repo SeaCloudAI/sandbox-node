@@ -41,10 +41,10 @@ function createCmdService(handler) {
   });
 }
 
-function jsonResponse(status, body) {
+function jsonResponse(status, body, headers = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
   });
 }
 
@@ -159,23 +159,122 @@ test("unit: sandbox request encoding", async (t) => {
     assert.equal(response.runtime.baseUrl, "https://sandbox-gateway.cloud.seaart.ai");
   });
 
-  await t.test("create sandbox requires templateID", async () => {
-    const rejectingClient = createProjectGatewayClient(async () => {
-      throw new Error("createSandbox should validate templateID before sending");
-    });
-    await assert.rejects(
-      () => rejectingClient.createSandbox({ templateID: "", waitReady: false }),
-      ValidationError,
-    );
-
+  await t.test("create sandbox defaults template when templateID is omitted", async () => {
     const client = createProjectGatewayClient(async (input, init) => {
       assert.equal(String(input), "https://sandbox-gateway.cloud.seaart.ai/api/v1/sandboxes");
-      assert.deepEqual(JSON.parse(init.body), { templateID: "tpl", waitReady: false });
-      return jsonResponse(201, { sandboxID: "sb-2" });
+      assert.deepEqual(JSON.parse(init.body), {
+        waitReady: false,
+        autoResume: true,
+        allowInternetAccess: false,
+        volumeMounts: [{ name: "cache", path: "/cache" }],
+      });
+      return jsonResponse(201, { sandboxID: "sb-2", templateID: "base" });
     });
 
-    const response = await client.createSandbox({ templateID: "tpl", waitReady: false });
+    const response = await client.createSandbox({
+      waitReady: false,
+      autoResume: true,
+      allowInternetAccess: false,
+      volumeMounts: [{ name: "cache", path: "/cache" }],
+    });
     assert.equal(response.sandboxID, "sb-2");
+  });
+
+  await t.test("lifecycle volumes and teams requests", async () => {
+    const calls = [];
+    const client = new GatewayClient({
+      baseUrl: "https://sandbox-gateway.cloud.seaart.ai/api/v1",
+      apiKey: "unit-auth-value",
+      namespaceId: "ns-1",
+      userId: "user-1",
+      projectId: "project-1",
+      fetch: async (input, init) => {
+        calls.push({ url: String(input), method: init.method });
+        const headers = new Headers(init.headers);
+        assert.equal(headers.get("X-Namespace-ID"), "ns-1");
+        assert.equal(headers.get("X-User-ID"), "user-1");
+        if (String(input).endsWith("/api/v1/events/sandboxes?limit=5&orderAsc=true&types=sandbox.lifecycle.created")) {
+          return jsonResponse(200, [{
+            version: "v1",
+            id: "evt-1",
+            type: "sandbox.lifecycle.created",
+            sandboxId: "sb-1",
+            sandboxTeamId: "project-1",
+            timestamp: "2026-06-04T09:00:00Z",
+          }]);
+        }
+        if (String(input).endsWith("/api/v1/events/webhooks") && init.method === "POST") {
+          assert.equal(JSON.parse(init.body).retryPolicy.maxAttempts, 5);
+          return jsonResponse(201, {
+            id: "wh-1",
+            teamId: "project-1",
+            name: "lifecycle",
+            createdAt: "2026-06-04T09:00:00Z",
+            enabled: true,
+            url: "https://example.com/hook",
+            events: ["sandbox.lifecycle.created"],
+            retryPolicy: { maxAttempts: 5, delaySeconds: [1, 5], deadLetterEnabled: true },
+            deadLetterUrl: "https://example.com/dlq",
+          });
+        }
+        if (String(input).endsWith("/api/v1/events/webhook-deliveries?webhookID=wh-1")) {
+          return jsonResponse(200, [{
+            id: "del-1",
+            eventId: "evt-1",
+            webhookId: "wh-1",
+            namespaceId: "ns-1",
+            teamId: "project-1",
+            url: "https://example.com/hook",
+            status: "succeeded",
+            attempts: 1,
+            createdAt: "2026-06-04T09:00:00Z",
+          }]);
+        }
+        if (String(input).endsWith("/api/v1/events/webhook-deliveries/del-1/replay")) {
+          return jsonResponse(202, {
+            id: "del-2",
+            eventId: "evt-1",
+            webhookId: "wh-1",
+            namespaceId: "ns-1",
+            teamId: "project-1",
+            url: "https://example.com/hook",
+            status: "pending",
+            attempts: 0,
+            createdAt: "2026-06-04T09:00:01Z",
+          });
+        }
+        if (String(input).endsWith("/api/v1/volumes") && init.method === "POST") {
+          return jsonResponse(201, { volumeID: "vol-1", name: "cache", token: "token-1" });
+        }
+        if (String(input).endsWith("/api/v1/volumes") && init.method === "GET") {
+          return jsonResponse(200, [{ volumeID: "vol-1", name: "cache" }]);
+        }
+        if (String(input).endsWith("/api/v1/teams")) {
+          return jsonResponse(200, [{ teamID: "project-1", name: "project-1", apiKey: "key-1", isDefault: true }]);
+        }
+        if (String(input).endsWith("/api/v1/teams/project-1/metrics/max?metric=concurrent_sandboxes")) {
+          return jsonResponse(200, { timestamp: "2026-06-04T09:00:00Z", timestampUnix: 1780563600, value: 3 });
+        }
+        throw new Error(`unexpected request ${init.method} ${String(input)}`);
+      },
+    });
+
+    assert.equal((await client.listSandboxEvents({ limit: 5, orderAsc: true, types: ["sandbox.lifecycle.created"] }))[0].id, "evt-1");
+    assert.equal((await client.createWebhook({
+      name: "lifecycle",
+      url: "https://example.com/hook",
+      events: ["sandbox.lifecycle.created"],
+      signatureSecret: "secret",
+      retryPolicy: { maxAttempts: 5, delaySeconds: [1, 5], deadLetterEnabled: true },
+      deadLetterUrl: "https://example.com/dlq",
+    })).retryPolicy.maxAttempts, 5);
+    assert.equal((await client.listWebhookDeliveries({ webhookID: "wh-1" }))[0].status, "succeeded");
+    assert.equal((await client.replayWebhookDelivery("del-1")).status, "pending");
+    assert.equal((await client.createVolume({ name: "cache" })).token, "token-1");
+    assert.equal((await client.listVolumes())[0].volumeID, "vol-1");
+    assert.equal((await client.listTeams())[0].teamID, "project-1");
+    assert.equal((await client.getTeamMetricsMax("project-1", { metric: "concurrent_sandboxes" })).value, 3);
+    assert.equal(calls.length, 8);
   });
 
   await t.test("client options fall back to SEACLOUD_API_KEY", async () => {
@@ -261,17 +360,19 @@ test("unit: sandbox request encoding", async (t) => {
       assert.deepEqual(url.searchParams.getAll("state"), ["running", "paused"]);
       assert.equal(url.searchParams.get("limit"), "10");
       assert.equal(url.searchParams.get("nextToken"), "MQ");
-      return jsonResponse(200, []);
+      return jsonResponse(200, [], { "X-Next-Token": "Mg", "X-Has-Next": "true" });
     });
 
-    const response = await client.listSandboxes({
+    const page = await client.listSandboxesPage({
       metadata: { app: "prod", team: "core" },
       state: ["running", "paused"],
       limit: 10,
       nextToken: "MQ",
     });
-    assert.equal(Array.isArray(response), true);
-    assert.equal(response.length, 0);
+    assert.equal(Array.isArray(page.items), true);
+    assert.equal(page.items.length, 0);
+    assert.equal(page.nextToken, "Mg");
+    assert.equal(page.hasNext, true);
   });
 
   await t.test("logger receives sanitized request lifecycle events with request ids", async () => {

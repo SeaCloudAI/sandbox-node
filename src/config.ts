@@ -11,6 +11,8 @@ const processEnv = (
 export interface GatewayOptions {
   domain?: string;
   apiKey?: string;
+  namespaceId?: string;
+  userId?: string;
   projectId?: string;
   fetch?: typeof fetch;
   requestTimeoutMs?: number;
@@ -43,11 +45,21 @@ export function resolveGatewayProjectId(projectId?: string): string | undefined 
   return projectId;
 }
 
+export function resolveGatewayNamespaceId(namespaceId?: string): string | undefined {
+  return namespaceId;
+}
+
+export function resolveGatewayUserId(userId?: string): string | undefined {
+  return userId;
+}
+
 export function pickGatewayOptions(source: GatewayOptions): GatewayOptions {
   return {
     domain: source.domain,
     baseUrl: source.baseUrl,
     apiKey: source.apiKey,
+    namespaceId: source.namespaceId,
+    userId: source.userId,
     projectId: source.projectId,
     fetch: source.fetch,
     requestTimeoutMs: source.requestTimeoutMs,
@@ -60,6 +72,8 @@ export function resolveGatewayOptions(options: GatewayOptions = {}): ClientOptio
   return {
     baseUrl: resolveGatewayBaseUrl(options.baseUrl, options.domain),
     apiKey: resolveGatewayApiKey(options.apiKey),
+    namespaceId: resolveGatewayNamespaceId(options.namespaceId),
+    userId: resolveGatewayUserId(options.userId),
     projectId: resolveGatewayProjectId(options.projectId),
     fetch: options.fetch,
     timeoutMs: options.requestTimeoutMs,

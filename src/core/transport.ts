@@ -1,7 +1,7 @@
 import { APIError, ConfigurationError, RequestTimeoutError } from "./errors.js";
 import type { ShutdownResponse } from "./types.js";
 import { SDK_VERSION } from "../version.js";
-import { resolveGatewayApiKey, resolveGatewayBaseUrl, resolveGatewayProjectId } from "../config.js";
+import { resolveGatewayApiKey, resolveGatewayBaseUrl, resolveGatewayNamespaceId, resolveGatewayProjectId, resolveGatewayUserId } from "../config.js";
 
 export type SDKDiagnosticEventType = "request" | "response" | "error";
 
@@ -22,6 +22,8 @@ export type SDKLogger = (event: SDKDiagnosticEvent) => void;
 export interface ClientOptions {
   baseUrl?: string;
   apiKey?: string;
+  namespaceId?: string;
+  userId?: string;
   projectId?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
@@ -41,6 +43,8 @@ export class BaseTransport {
   constructor(options: ClientOptions) {
     const baseUrl = resolveGatewayBaseUrl(options.baseUrl).trim().replace(/\/+$/, "");
     const apiKey = resolveGatewayApiKey(options.apiKey).trim();
+    const namespaceId = (resolveGatewayNamespaceId(options.namespaceId) ?? "").trim() || undefined;
+    const userId = (resolveGatewayUserId(options.userId) ?? "").trim() || undefined;
     const projectId = (resolveGatewayProjectId(options.projectId) ?? "").trim() || undefined;
 
     if (!baseUrl) {
@@ -60,6 +64,8 @@ export class BaseTransport {
       Authorization: `Bearer ${apiKey}`,
       "User-Agent": `seacloudai-sandbox-node/${SDK_VERSION}`,
       "X-API-Key": apiKey,
+      ...(namespaceId ? { "X-Namespace-ID": namespaceId } : {}),
+      ...(userId ? { "X-User-ID": userId } : {}),
       ...(projectId ? { "X-Project-ID": projectId } : {}),
     });
   }

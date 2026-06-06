@@ -6,13 +6,16 @@ export interface VolumeMount {
 }
 
 export interface NewSandboxRequest {
-  templateID: string;
+  templateID?: string;
   timeout?: number;
   autoPause?: boolean;
+  autoResume?: boolean;
+  allowInternetAccess?: boolean;
   metadata?: Record<string, string>;
   envVars?: Record<string, string>;
   waitReady?: boolean;
   network?: SandboxNetworkPolicy;
+  volumeMounts?: VolumeMount[];
 }
 
 export interface SandboxNetworkPolicy {
@@ -28,6 +31,143 @@ export interface ControlRequestOptions {
 
 export interface SandboxLifecycle {
   onTimeout: "kill" | "pause";
+  autoResume?: boolean;
+}
+
+export interface SandboxLifecycleEvent {
+  version: string;
+  id: string;
+  type: string;
+  eventData?: Record<string, unknown> | null;
+  sandboxBuildId?: string;
+  sandboxExecutionId?: string;
+  sandboxId: string;
+  sandboxTeamId: string;
+  sandboxTemplateId?: string;
+  timestamp: string;
+}
+
+export interface ListSandboxEventsParams {
+  offset?: number;
+  limit?: number;
+  orderAsc?: boolean;
+  types?: string[];
+}
+
+export interface WebhookRetryPolicy {
+  maxAttempts: number;
+  delaySeconds?: number[];
+  deadLetterEnabled?: boolean;
+}
+
+export interface LifecycleWebhook {
+  id: string;
+  teamId: string;
+  name: string;
+  createdAt: string;
+  updatedAt?: string;
+  enabled: boolean;
+  url: string;
+  events: string[];
+  retryPolicy?: WebhookRetryPolicy;
+  deadLetterUrl?: string;
+}
+
+export interface LifecycleWebhookCreateRequest {
+  name: string;
+  url: string;
+  enabled?: boolean;
+  events: string[];
+  signatureSecret: string;
+  retryPolicy?: WebhookRetryPolicy;
+  deadLetterUrl?: string;
+}
+
+export interface LifecycleWebhookUpdateRequest {
+  name?: string;
+  url?: string;
+  enabled?: boolean;
+  events?: string[];
+  signatureSecret?: string;
+  retryPolicy?: WebhookRetryPolicy;
+  deadLetterUrl?: string;
+}
+
+export interface DeleteWebhookResponse {
+  deleted: boolean;
+}
+
+export interface LifecycleWebhookDelivery {
+  id: string;
+  eventId: string;
+  webhookId: string;
+  namespaceId: string;
+  teamId: string;
+  url: string;
+  status: string;
+  httpStatus?: number;
+  attempts: number;
+  maxAttempts?: number;
+  error?: string;
+  deadLetterUrl?: string;
+  deadLetterError?: string;
+  createdAt: string;
+  lastAttemptAt?: string;
+  nextAttemptAt?: string;
+  deliveredAt?: string;
+}
+
+export interface ListWebhookDeliveriesParams {
+  offset?: number;
+  limit?: number;
+  orderAsc?: boolean;
+  webhookID?: string;
+  eventID?: string;
+  status?: string;
+}
+
+export interface Volume {
+  volumeID: string;
+  name: string;
+}
+
+export interface VolumeAndToken {
+  volumeID: string;
+  name: string;
+  token: string;
+}
+
+export interface NewVolumeRequest {
+  name: string;
+}
+
+export interface Team {
+  teamID: string;
+  name: string;
+  apiKey: string;
+  isDefault: boolean;
+}
+
+export interface TeamMetric {
+  timestamp: string;
+  timestampUnix: number;
+  concurrentSandboxes: number;
+  sandboxStartRate: number;
+}
+
+export interface MaxTeamMetric {
+  timestamp: string;
+  timestampUnix: number;
+  value: number;
+}
+
+export interface TeamMetricsParams {
+  start?: number;
+  end?: number;
+}
+
+export interface TeamMetricsMaxParams extends TeamMetricsParams {
+  metric: string;
 }
 
 export interface SandboxTimelineEvent {
@@ -108,6 +248,12 @@ export interface ListSandboxesParams {
   state?: string[];
   limit?: number;
   nextToken?: string;
+}
+
+export interface SandboxesPage {
+  items: ListedSandbox[];
+  nextToken: string;
+  hasNext: boolean;
 }
 
 export interface SandboxMetricSnapshot {

@@ -15,6 +15,7 @@ import { resolveGatewayOptions } from "./config.js";
 import type {
   ConnectSandboxRequest,
   ListSandboxesParams,
+  NewSandboxRequest,
   RefreshSandboxRequest,
   SandboxDetail,
   SandboxLogsParams,
@@ -39,13 +40,16 @@ export interface SandboxCreateOptions {
   requestTimeoutMs?: number;
   debug?: ClientOptions["debug"];
   logger?: ClientOptions["logger"];
-  template: string;
+  template?: string;
   timeout?: number;
   autoPause?: boolean;
+  autoResume?: boolean;
+  allowInternetAccess?: boolean;
   metadata?: Record<string, string>;
   envs?: Record<string, string>;
   waitReady?: boolean;
   network?: SandboxNetworkPolicy;
+  volumeMounts?: NewSandboxRequest["volumeMounts"];
 }
 
 type SandboxCreateOverrides = Omit<SandboxCreateOptions, "template">;
@@ -1125,15 +1129,7 @@ function normalizeSandboxCreateArgs(
   maybeOptions: SandboxCreateOverrides,
 ): {
   clientOptions: HighLevelClientOptions;
-  body: {
-    templateID: string;
-    timeout?: number;
-    autoPause?: boolean;
-    metadata?: Record<string, string>;
-    envVars?: Record<string, string>;
-    waitReady?: boolean;
-    network?: SandboxNetworkPolicy;
-  };
+  body: NewSandboxRequest;
 } {
   if (typeof templateOrOptions === "string") {
     const source = { ...maybeOptions, template: templateOrOptions };
@@ -1163,40 +1159,36 @@ function normalizeSandboxCreateArgs(
 
 function normalizeSandboxCreateBody(
   source: SandboxCreateOptions,
-): {
-  templateID: string;
-  timeout?: number;
-  autoPause?: boolean;
-  metadata?: Record<string, string>;
-  envVars?: Record<string, string>;
-  waitReady?: boolean;
-  network?: SandboxNetworkPolicy;
-} {
+): NewSandboxRequest {
   rejectUnsupportedSandboxCreateFields(source as unknown as Record<string, unknown>);
   const templateID = typeof source.template === "string" && source.template.trim() ? source.template.trim() : undefined;
-  if (templateID === undefined) {
-    throw new ConfigurationError("templateID is required");
-  }
   const timeout = source.timeout === undefined
     ? undefined
     : normalizeLifecycleTimeoutSeconds(source.timeout);
-  return {
+  return filterUndefined({
     templateID,
     timeout,
     autoPause: source.autoPause,
+    autoResume: source.autoResume,
+    allowInternetAccess: source.allowInternetAccess,
     metadata: source.metadata,
     envVars: source.envs,
     waitReady: source.waitReady,
     network: source.network,
-  };
+    volumeMounts: source.volumeMounts,
+  });
 }
 
 function rejectUnsupportedSandboxCreateFields(source: Record<string, unknown>): void {
-  for (const key of ["autoResume", "secure", "allow_internet_access", "mcp", "volumeMounts"]) {
+  for (const key of ["secure", "mcp", "allow_internet_access", "volume_mounts"]) {
     if (Object.prototype.hasOwnProperty.call(source, key)) {
       throw new ConfigurationError(`${key} is not supported`);
     }
   }
+}
+
+function filterUndefined<T extends Record<string, unknown>>(source: T): T {
+  return Object.fromEntries(Object.entries(source).filter(([, value]) => value !== undefined)) as T;
 }
 
 function normalizeConnectTimeoutSeconds(options: { timeout?: number }): number {
