@@ -335,6 +335,38 @@ test("unit: sandbox request encoding", async (t) => {
     }
   });
 
+  await t.test("client options default to production sandbox-service API root", async () => {
+    const previousBaseUrl = process.env.SEACLOUD_BASE_URL;
+    const previousApiKey = process.env.SEACLOUD_API_KEY;
+    delete process.env.SEACLOUD_BASE_URL;
+    process.env.SEACLOUD_API_KEY = "unit-auth-value";
+    try {
+      const client = new GatewayClient({
+        fetch: async (input, init) => {
+          const headers = new Headers(init.headers);
+          assert.equal(String(input), "https://sandbox-service.real-cloud.seaart.ai/api/v1/sandbox/sandboxes");
+          assert.equal(headers.get("X-API-Key"), "unit-auth-value");
+          return jsonResponse(200, []);
+        },
+      });
+
+      const response = await client.listSandboxes();
+      assert.equal(Array.isArray(response), true);
+      assert.equal(client.baseUrl, "https://sandbox-service.real-cloud.seaart.ai/api/v1/sandbox");
+    } finally {
+      if (previousBaseUrl === undefined) {
+        delete process.env.SEACLOUD_BASE_URL;
+      } else {
+        process.env.SEACLOUD_BASE_URL = previousBaseUrl;
+      }
+      if (previousApiKey === undefined) {
+        delete process.env.SEACLOUD_API_KEY;
+      } else {
+        process.env.SEACLOUD_API_KEY = previousApiKey;
+      }
+    }
+  });
+
   await t.test("client baseUrl controls gateway API root path", async () => {
     const client = new GatewayClient({
       baseUrl: "https://seacloud-sandbox-service.dev.seaart.dev/api/v1/sandbox",

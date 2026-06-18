@@ -1,5 +1,7 @@
 import type { ClientOptions } from "./core/transport.js";
 
+export const DEFAULT_GATEWAY_BASE_URL = "https://sandbox-service.real-cloud.seaart.ai/api/v1/sandbox";
+
 const processEnv = (
   globalThis as typeof globalThis & {
     process?: {
@@ -34,7 +36,7 @@ export function resolveGatewayBaseUrl(baseUrl?: string, domain?: string): string
   if (envDomain) {
     return normalizeDomain(envDomain);
   }
-  return "";
+  return DEFAULT_GATEWAY_BASE_URL;
 }
 
 export function resolveGatewayApiKey(apiKey?: string): string {
